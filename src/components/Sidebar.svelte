@@ -9,8 +9,10 @@
 
   let sessionsByDoc = $state({});
 
-  // Fetch documents on mount
+  // Fetch documents on mount and whenever refreshVersion changes (e.g. after save)
   $effect(() => {
+    // Read refreshVersion to establish reactive dependency
+    const _v = documents.refreshVersion;
     refreshSidebar();
   });
 
@@ -55,10 +57,12 @@
     }
   }
 
-  // Auto-load sessions for expanded docs when document list changes
+  // Auto-load sessions for expanded docs when document list or refreshVersion changes
   $effect(() => {
+    const _v = documents.refreshVersion;
     for (const d of documents.list) {
-      if (isDocExpanded(d.id) && !(d.id in sessionsByDoc)) {
+      if (isDocExpanded(d.id)) {
+        // Re-fetch sessions whenever refresh is triggered (not just when missing)
         loadSessionsForDoc(d.id);
       }
     }
@@ -67,11 +71,12 @@
   async function loadSession(docId, sessionNumber) {
     try {
       const data = await apiGetSession(docId, sessionNumber);
-      if (data.state) {
-        restore(data.state);
-        documents.currentDocumentId = docId;
-        documents.currentSessionNumber = sessionNumber;
-      }
+      if (data.error || !data.session) return;
+      const state = data.session.state;
+      if (!state) return;
+      restore(state);
+      documents.currentDocumentId = docId;
+      documents.currentSessionNumber = sessionNumber;
     } catch {
       // Silent failure
     }

@@ -15,7 +15,7 @@
   import { session } from './stores/session.svelte.js';
   import { endpoints, addEndpoint } from './stores/endpoints.svelte.js';
   import { ui } from './stores/ui.svelte.js';
-  import { documents } from './stores/documents.svelte.js';
+  import { documents, notifyDocumentsChanged } from './stores/documents.svelte.js';
   import { snapshot, restore } from './stores/snapshot.js';
 
   // ── Save button state ──
@@ -132,9 +132,11 @@
         showDropToast('Session has no state data', true);
         return;
       }
+      restore(state);
+      // Set document tracking AFTER restore() so the stale sessionNumber
+      // stored inside the snapshot doesn't overwrite the actual values.
       documents.currentDocumentId = docId;
       documents.currentSessionNumber = sessionNumber;
-      restore(state);
       documents.lastSavedStateHash = stateFingerprint(state);
       breadcrumbText = `doc #${docId} session #${sessionNumber}`;
       showDropToast(`Loaded session #${sessionNumber}`, false);
@@ -149,20 +151,28 @@
     saveStatus = { text: 'Saving...', color: '', disabled: true };
     try {
       const state = snapshot();
-      const data = await apiSave(state, documents.currentDocumentId);
+      const data = await apiSave(state, documents.currentDocumentId, 'save', documents.currentSessionNumber || null);
       if (data.ok) {
         documents.currentDocumentId = data.document.id;
         if (data.session) {
           documents.currentSessionNumber = data.session.session_number;
         }
         documents.lastSavedStateHash = stateFingerprint(state);
+        // Update breadcrumb to reflect current doc/session (task 6)
+        breadcrumbText = `doc #${documents.currentDocumentId} session #${documents.currentSessionNumber}`;
         startAutosave();
         saveStatus = { text: 'Saved', color: 'var(--green)', disabled: true };
+        // Notify sidebar to refresh document list and session counts (tasks 2, 14)
+        notifyDocumentsChanged();
+        // Toast feedback (task 10)
+        showDropToast(`Saved session #${documents.currentSessionNumber}`, false);
       } else {
         saveStatus = { text: 'Error', color: 'var(--red)', disabled: true };
+        showDropToast('Save failed', true);
       }
     } catch {
       saveStatus = { text: 'Error', color: 'var(--red)', disabled: true };
+      showDropToast('Save failed', true);
     }
     setTimeout(() => {
       saveStatus = { text: 'Save', color: '', disabled: false };
@@ -214,7 +224,11 @@
       documents.lastSavedStateHash = fp;
       if (saveData.session) {
         documents.currentSessionNumber = saveData.session.session_number;
+        breadcrumbText = `doc #${documents.currentDocumentId} session #${documents.currentSessionNumber}`;
       }
+      // Notify sidebar so session counts update after autosave (tasks 2, 14)
+      notifyDocumentsChanged();
+      showAutoSaveToast();
     } catch {
       // Silent failure for autosave
     }
@@ -343,6 +357,14 @@
     }, 3500);
   }
 
+  function showAutoSaveToast() {
+    toast = { text: 'Autosaved', cls: 'autosave', visible: true };
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => {
+      toast = { ...toast, visible: false };
+    }, 2000);
+  }
+
   function dismissBreadcrumb() {
     breadcrumbText = '';
   }
@@ -434,7 +456,7 @@
         disabled={saveStatus.disabled}
       >{saveStatus.text}</button>
       {#if docIndicator}
-        <span style="font-size:0.7em;color:var(--text-dim);font-family:var(--mono)" title="Each save creates a new session snapshot. The counter grows intentionally so you can revisit prior states.">{docIndicator}</span>
+        <span style="font-size:0.7em;color:var(--text-dim);font-family:var(--mono)" title="Save updates the current session. Autosave creates new snapshots when state changes.">{docIndicator}</span>
       {/if}
     </div>
 

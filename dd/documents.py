@@ -24,7 +24,8 @@ async def save_session(payload: dict):
     state = payload.get("state", payload)  # accept both wrapped and bare state
     document_id = payload.get("documentId")
     session_type = payload.get("sessionType", "save")
-    result = store.save(state, document_id, session_type)
+    session_number = payload.get("sessionNumber")
+    result = store.save(state, document_id, session_type, session_number)
     skipped = result.get("session", {}).get("skipped", False)
     if skipped:
         return {"ok": True, "skipped": True}

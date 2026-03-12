@@ -367,6 +367,52 @@ def get_latest_session(document_id: int) -> dict | None:
     return d
 
 
+def update_session(
+    document_id: int, session_number: int, state: dict
+) -> dict | None:
+    """Update an existing session's state in-place (for explicit re-saves)."""
+    now = _now()
+    summary = _summarize_state(state)
+    state_hash = _hash_state(state)
+    state_json = json.dumps(state)
+    conn = _connect()
+    cur = conn.execute(
+        """UPDATE sessions
+           SET state_json = ?, state_hash = ?, endpoint_count = ?,
+               drift_count = ?, ok_count = ?, created_at = ?
+           WHERE document_id = ? AND session_number = ? AND deleted_at IS NULL""",
+        (
+            state_json,
+            state_hash,
+            summary["endpoint_count"],
+            summary["drift_count"],
+            summary["ok_count"],
+            now,
+            document_id,
+            session_number,
+        ),
+    )
+    conn.execute(
+        "UPDATE documents SET updated_at = ? WHERE id = ?",
+        (now, document_id),
+    )
+    conn.commit()
+
+    if cur.rowcount == 0:
+        conn.close()
+        return None
+
+    cur2 = conn.execute(
+        """SELECT id, document_id, session_number, session_type,
+                  endpoint_count, drift_count, ok_count, state_hash, created_at
+           FROM sessions WHERE document_id = ? AND session_number = ?""",
+        (document_id, session_number),
+    )
+    session = _fetchone_dict(cur2)
+    conn.close()
+    return session
+
+
 def soft_delete_session(document_id: int, session_number: int) -> bool:
     conn = _connect()
     cur = conn.execute(
@@ -383,7 +429,10 @@ def soft_delete_session(document_id: int, session_number: int) -> bool:
 
 
 def save(
-    state: dict, document_id: int | None = None, session_type: str = "save"
+    state: dict,
+    document_id: int | None = None,
+    session_type: str = "save",
+    session_number: int | None = None,
 ) -> dict:
     title = state.get("title") or "Untitled"
 
@@ -397,6 +446,13 @@ def save(
             if title != doc["title"]:
                 update_document_title(doc["id"], title)
                 doc["title"] = title
+
+    # For explicit saves with an existing session, update in-place
+    if session_type == "save" and session_number:
+        updated = update_session(doc["id"], session_number, state)
+        if updated:
+            return {"document": doc, "session": updated}
+        # Fall through to create_session if update failed (deleted/missing)
 
     session = create_session(doc["id"], state, session_type)
     return {"document": doc, "session": session}
