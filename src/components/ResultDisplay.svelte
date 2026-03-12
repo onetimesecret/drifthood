@@ -26,8 +26,8 @@
 
   // Computed meta strings
   let metaStatus = $derived(r ? `${statusLabel(r.response_a)}/${statusLabel(r.response_b)}` : '');
-  let metaSize = $derived(r ? `${contentLength(r.response_a)}/${contentLength(r.response_b)} bytes` : '');
-  let metaTiming = $derived(r ? `${r.response_a.elapsed_ms ?? '?'}/${r.response_b.elapsed_ms ?? '?'}ms` : '');
+  let metaSize = $derived(r ? `${isErrorResponse(r.response_a) ? 'N/A' : contentLength(r.response_a)}/${isErrorResponse(r.response_b) ? 'N/A' : contentLength(r.response_b)} bytes` : '');
+  let metaTiming = $derived(r ? `${r.response_a.elapsed_ms ?? 'N/A'}/${r.response_b.elapsed_ms ?? 'N/A'}ms` : '');
 
   // Request body formatting
   let reqBodyFmt = $derived(r ? formatRequestBody(r.request_body, r.request_content_type) : null);
@@ -59,18 +59,36 @@
 
   function copyFullMd(btn) {
     if (!r) return;
-    clipCopy(buildFullMd(r, sessionContext()), btn);
-    copyMenuOpen = false;
+    clipCopyWithMenuClose(buildFullMd(r, sessionContext()), btn);
   }
 
   function copyFullJson(btn) {
     if (!r) return;
-    clipCopy(JSON.stringify(r, null, 2), btn);
-    copyMenuOpen = false;
+    clipCopyWithMenuClose(JSON.stringify(r, null, 2), btn);
+  }
+
+  function clipCopyWithMenuClose(text, btn) {
+    navigator.clipboard.writeText(text).then(() => {
+      if (btn) {
+        const orig = btn.textContent;
+        btn.textContent = 'Copied';
+        btn.classList.add('copied');
+        setTimeout(() => { btn.textContent = orig; btn.classList.remove('copied'); copyMenuOpen = false; }, 1200);
+      } else {
+        copyMenuOpen = false;
+      }
+    });
+  }
+
+  function isErrorResponse(resp) {
+    return resp.status == null && resp.error;
   }
 
   function formatReqHeaders(result, side) {
     const resp = side === 'a' ? result.response_a : result.response_b;
+    if (isErrorResponse(resp)) {
+      return `Error: ${resp.error}`;
+    }
     let lines = [];
     if (resp.request_url) lines.push(`URL: ${resp.request_url}`);
     lines.push(`Method: ${result.method}`);
@@ -121,9 +139,17 @@
     return { html: escHtml(body), text: body, type: 'raw' };
   }
 
-  function fmtBody(body) {
-    if (body == null) return '(empty)';
+  function fmtBody(body, resp) {
+    if (body == null) {
+      if (resp && isErrorResponse(resp)) return `No response (${resp.error})`;
+      return '(empty)';
+    }
     return typeof body === 'string' ? body : JSON.stringify(body, null, 2);
+  }
+
+  function fmtRespHeaders(resp) {
+    if (isErrorResponse(resp)) return `No response (${resp.error})`;
+    return JSON.stringify(resp.headers, null, 2);
   }
 
   // Close copy menu on outside click
@@ -152,14 +178,14 @@
 
       <div class="side-by-side">
         <div class="has-copy">
-          <button class="inline-copy" onclick={(e) => clipCopy(fmtBody(r.response_a.body), e.currentTarget)}>copy</button>
+          <button class="inline-copy" onclick={(e) => clipCopy(fmtBody(r.response_a.body, r.response_a), e.currentTarget)}>copy</button>
           <div class="side-label">Host A ({r.response_a.status || 'ERR'})</div>
-          <div class="side-json">{jsonSummary(r.response_a.body, 2)}</div>
+          <div class="side-json">{isErrorResponse(r.response_a) ? fmtBody(null, r.response_a) : jsonSummary(r.response_a.body, 2)}</div>
         </div>
         <div class="has-copy">
-          <button class="inline-copy" onclick={(e) => clipCopy(fmtBody(r.response_b.body), e.currentTarget)}>copy</button>
+          <button class="inline-copy" onclick={(e) => clipCopy(fmtBody(r.response_b.body, r.response_b), e.currentTarget)}>copy</button>
           <div class="side-label">Host B ({r.response_b.status || 'ERR'})</div>
-          <div class="side-json">{jsonSummary(r.response_b.body, 2)}</div>
+          <div class="side-json">{isErrorResponse(r.response_b) ? fmtBody(null, r.response_b) : jsonSummary(r.response_b.body, 2)}</div>
         </div>
       </div>
 
@@ -225,14 +251,14 @@
         <div class="raw-headers" style="display:block">
           <div class="side-by-side">
             <div class="has-copy">
-              <button class="inline-copy" onclick={(e) => clipCopy(JSON.stringify(r.response_a.headers, null, 2), e.currentTarget)}>copy</button>
+              <button class="inline-copy" onclick={(e) => clipCopy(fmtRespHeaders(r.response_a), e.currentTarget)}>copy</button>
               <div class="side-label">Response A</div>
-              {JSON.stringify(r.response_a.headers, null, 2)}
+              {fmtRespHeaders(r.response_a)}
             </div>
             <div class="has-copy">
-              <button class="inline-copy" onclick={(e) => clipCopy(JSON.stringify(r.response_b.headers, null, 2), e.currentTarget)}>copy</button>
+              <button class="inline-copy" onclick={(e) => clipCopy(fmtRespHeaders(r.response_b), e.currentTarget)}>copy</button>
               <div class="side-label">Response B</div>
-              {JSON.stringify(r.response_b.headers, null, 2)}
+              {fmtRespHeaders(r.response_b)}
             </div>
           </div>
         </div>
