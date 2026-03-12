@@ -188,19 +188,21 @@
       />
     {/if}
 
-    <span
+    <button
       class="ct-toggle {ct.cls}"
+      type="button"
       onclick={toggleCt}
       title="query / form / json"
-    >{ct.label}</span>
+    >{ct.label}</button>
 
     {#if hasAnyFields}
-      <span
+      <button
+        type="button"
         class="ep-fields-toggle"
         class:active={endpoint.fieldsMode === 'on'}
         onclick={toggleFieldsMode}
         title="Toggle per-field inputs"
-      >FIELDS</span>
+      >FIELDS</button>
     {/if}
 
     {#if fromSpec}

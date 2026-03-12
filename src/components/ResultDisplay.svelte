@@ -140,7 +140,7 @@
 
 {#if r}
   <div class="ep-result">
-    <div class="ep-result-header" onclick={toggleBody}>
+    <div class="ep-result-header" role="button" tabindex="0" onclick={toggleBody} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleBody(); } }}>
       <span class="chevron" class:open={expanded}>&#9654;</span>
       <span class="ep-result-badge {r.has_drift ? 'badge-drift' : 'badge-ok'}">{r.has_drift ? 'DRIFT' : 'OK'}</span>
       <span class="result-meta">{metaStatus} {metaSize}</span>
