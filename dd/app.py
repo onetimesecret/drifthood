@@ -2,7 +2,7 @@
 
 """
 Drift Detector - FastAPI app factory.
-Mounts routers and static files. That's it.
+Mounts routers and serves the Vite-built frontend from dist/.
 """
 
 import os
@@ -31,25 +31,21 @@ def create_app() -> FastAPI:
     app.include_router(documents_router)
     app.include_router(openapi_router)
 
-    # ── Static files ──
-    static_dir = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)), "static"
+    # ── Frontend (Vite build output) ──
+    dist_dir = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), "dist"
     )
-
-    @app.get("/.well-known/appspecific/com.chrome.devtools.json")
-    async def chrome_devtools_json():
-        return FileResponse(
-            os.path.join(
-                static_dir, ".well-known/appspecific/com.chrome.devtools.json"
-            )
-        )
 
     @app.get("/")
     async def index():
-        return FileResponse(os.path.join(static_dir, "index.html"))
+        return FileResponse(os.path.join(dist_dir, "index.html"))
 
-    # Mount static directory for CSS, JS, and other assets
-    app.mount("/static", StaticFiles(directory=static_dir), name="static")
+    # Vite puts hashed JS/CSS in dist/assets/
+    app.mount(
+        "/assets",
+        StaticFiles(directory=os.path.join(dist_dir, "assets")),
+        name="assets",
+    )
 
     return app
 
