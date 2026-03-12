@@ -49,8 +49,9 @@
   </div>
 
   <div class="config-group">
-    <label>URL</label>
+    <label for="host-url-{side}">URL</label>
     <input
+      id="host-url-{side}"
       type="text"
       bind:value={session[hostKey]}
       placeholder={placeholderHost || (side === 'A' ? 'http://localhost:10235' : 'http://localhost:10240')}
@@ -58,8 +59,9 @@
   </div>
 
   <div class="config-group">
-    <label>Auth (user:token)</label>
+    <label for="host-auth-{side}">Auth (user:token)</label>
     <input
+      id="host-auth-{side}"
       type="text"
       bind:value={session[authKey]}
       placeholder="user@example.com:TOKEN"
@@ -67,8 +69,9 @@
   </div>
 
   <div class="config-group">
-    <label>Memo</label>
+    <label for="host-memo-{side}">Memo</label>
     <input
+      id="host-memo-{side}"
       type="text"
       class="host-memo"
       bind:value={session[memoKey]}

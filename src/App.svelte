@@ -434,7 +434,7 @@
         disabled={saveStatus.disabled}
       >{saveStatus.text}</button>
       {#if docIndicator}
-        <span style="font-size:0.7em;color:var(--text-dim);font-family:var(--mono)">{docIndicator}</span>
+        <span style="font-size:0.7em;color:var(--text-dim);font-family:var(--mono)" title="Each save creates a new session snapshot. The counter grows intentionally so you can revisit prior states.">{docIndicator}</span>
       {/if}
     </div>
 
