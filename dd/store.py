@@ -1,3 +1,5 @@
+# drift-detector/dd/store.py
+
 """
 SQLite / Turso storage for Drift Detector documents and sessions.
 
@@ -15,12 +17,12 @@ plus DD_DB_AUTH_TOKEN to switch backends. All SQL stays the same
 because Turso is wire-compatible with SQLite.
 """
 
-import sqlite3
 import hashlib
 import json
-import time
+import sqlite3
 from datetime import datetime, timezone
-from dd.config import DB_DRIVER, DB_PATH, DB_AUTH_TOKEN
+
+from dd.config import DB_AUTH_TOKEN, DB_DRIVER, DB_PATH
 
 
 def _connect():
@@ -59,7 +61,7 @@ def _row_to_dict(row, description):
         return None
     if isinstance(row, dict):
         return row
-    if hasattr(row, 'keys'):
+    if hasattr(row, "keys"):
         return dict(row)
     # Plain tuple from libsql
     return {description[i][0]: row[i] for i in range(len(description))}
@@ -69,18 +71,26 @@ def _fetchone_dict(cursor):
     row = cursor.fetchone()
     if row is None:
         return None
-    if hasattr(row, 'keys'):
+    if hasattr(row, "keys"):
         return dict(row)
-    return {cursor.description[i][0]: row[i] for i in range(len(cursor.description))}
+    return {
+        cursor.description[i][0]: row[i] for i in range(len(cursor.description))
+    }
 
 
 def _fetchall_dict(cursor):
     rows = cursor.fetchall()
     if not rows:
         return []
-    if hasattr(rows[0], 'keys'):
+    if hasattr(rows[0], "keys"):
         return [dict(r) for r in rows]
-    return [{cursor.description[i][0]: row[i] for i in range(len(cursor.description))} for row in rows]
+    return [
+        {
+            cursor.description[i][0]: row[i]
+            for i in range(len(cursor.description))
+        }
+        for row in rows
+    ]
 
 
 def init_db():
@@ -114,21 +124,34 @@ def init_db():
             UNIQUE(document_id, session_number)
         )
     """)
-    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_doc ON sessions(document_id)")
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_doc ON sessions(document_id)"
+    )
     conn.commit()
 
     # Migrations for existing DBs
     cursor = conn.execute("PRAGMA table_info(sessions)")
-    columns = [row[1] if isinstance(row, tuple) else row["name"] for row in cursor.fetchall()]
+    columns = [
+        row[1] if isinstance(row, tuple) else row["name"]
+        for row in cursor.fetchall()
+    ]
     migrations = []
     if "session_type" not in columns:
-        migrations.append("ALTER TABLE sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'save'")
+        migrations.append(
+            "ALTER TABLE sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'save'"
+        )
     if "endpoint_count" not in columns:
-        migrations.append("ALTER TABLE sessions ADD COLUMN endpoint_count INTEGER NOT NULL DEFAULT 0")
+        migrations.append(
+            "ALTER TABLE sessions ADD COLUMN endpoint_count INTEGER NOT NULL DEFAULT 0"
+        )
     if "drift_count" not in columns:
-        migrations.append("ALTER TABLE sessions ADD COLUMN drift_count INTEGER NOT NULL DEFAULT 0")
+        migrations.append(
+            "ALTER TABLE sessions ADD COLUMN drift_count INTEGER NOT NULL DEFAULT 0"
+        )
     if "ok_count" not in columns:
-        migrations.append("ALTER TABLE sessions ADD COLUMN ok_count INTEGER NOT NULL DEFAULT 0")
+        migrations.append(
+            "ALTER TABLE sessions ADD COLUMN ok_count INTEGER NOT NULL DEFAULT 0"
+        )
     if "state_hash" not in columns:
         migrations.append("ALTER TABLE sessions ADD COLUMN state_hash TEXT")
     if "deleted_at" not in columns:
@@ -147,7 +170,11 @@ def _now():
 
 def _hash_state(state: dict) -> str:
     """Compute a stable hash of the state, excluding volatile fields."""
-    s = {k: v for k, v in state.items() if k not in ("savedAt", "sessionNumber", "version")}
+    s = {
+        k: v
+        for k, v in state.items()
+        if k not in ("savedAt", "sessionNumber", "version")
+    }
     raw = json.dumps(s, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
@@ -157,10 +184,15 @@ def _summarize_state(state: dict) -> dict:
     endpoint_count = len(endpoints)
     drift_count = sum(1 for ep in endpoints if ep.get("state") == "done-drift")
     ok_count = sum(1 for ep in endpoints if ep.get("state") == "done-ok")
-    return {"endpoint_count": endpoint_count, "drift_count": drift_count, "ok_count": ok_count}
+    return {
+        "endpoint_count": endpoint_count,
+        "drift_count": drift_count,
+        "ok_count": ok_count,
+    }
 
 
 # ── Documents ──
+
 
 def create_document(title: str) -> dict:
     now = _now()
@@ -214,8 +246,13 @@ def update_document_title(doc_id: int, title: str):
 
 # ── Sessions ──
 
-def create_session(document_id: int, state: dict, session_type: str = "save") -> dict:
-    assert session_type in ("save", "autosave"), f"Invalid session_type: {session_type}"
+
+def create_session(
+    document_id: int, state: dict, session_type: str = "save"
+) -> dict:
+    assert session_type in ("save", "autosave"), (
+        f"Invalid session_type: {session_type}"
+    )
     now = _now()
     summary = _summarize_state(state)
     state_hash = _hash_state(state)
@@ -229,7 +266,11 @@ def create_session(document_id: int, state: dict, session_type: str = "save") ->
         last = _fetchone_dict(cur)
         if last and last["state_hash"] == state_hash:
             conn.close()
-            return {"skipped": True, "reason": "state unchanged", "state_hash": state_hash}
+            return {
+                "skipped": True,
+                "reason": "state unchanged",
+                "state_hash": state_hash,
+            }
 
     cur = conn.execute(
         "SELECT COALESCE(MAX(session_number), 0) AS mx FROM sessions WHERE document_id = ?",
@@ -243,9 +284,17 @@ def create_session(document_id: int, state: dict, session_type: str = "save") ->
         """INSERT INTO sessions
            (document_id, session_number, session_type, endpoint_count, drift_count, ok_count, state_json, state_hash, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-        (document_id, next_num, session_type,
-         summary["endpoint_count"], summary["drift_count"], summary["ok_count"],
-         state_json, state_hash, now),
+        (
+            document_id,
+            next_num,
+            session_type,
+            summary["endpoint_count"],
+            summary["drift_count"],
+            summary["ok_count"],
+            state_json,
+            state_hash,
+            now,
+        ),
     )
 
     conn.execute(
@@ -332,7 +381,10 @@ def soft_delete_session(document_id: int, session_number: int) -> bool:
 
 # ── Combined save operation ──
 
-def save(state: dict, document_id: int | None = None, session_type: str = "save") -> dict:
+
+def save(
+    state: dict, document_id: int | None = None, session_type: str = "save"
+) -> dict:
     title = state.get("title") or "Untitled"
 
     if document_id is None:

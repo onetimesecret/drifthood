@@ -1,9 +1,12 @@
+# drift-detector/dd/app.py
+
 """
 Drift Detector - FastAPI app factory.
 Mounts routers and static files. That's it.
 """
 
 import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -16,7 +19,12 @@ from dd.openapi import router as openapi_router
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Drift Detector")
-    app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["*"],
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
     # ── API routers ──
     app.include_router(compare_router)
@@ -24,11 +32,17 @@ def create_app() -> FastAPI:
     app.include_router(openapi_router)
 
     # ── Static files ──
-    static_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "static")
+    static_dir = os.path.join(
+        os.path.dirname(os.path.dirname(__file__)), "static"
+    )
 
     @app.get("/.well-known/appspecific/com.chrome.devtools.json")
     async def chrome_devtools_json():
-        return FileResponse(os.path.join(static_dir, ".well-known/appspecific/com.chrome.devtools.json"))
+        return FileResponse(
+            os.path.join(
+                static_dir, ".well-known/appspecific/com.chrome.devtools.json"
+            )
+        )
 
     @app.get("/")
     async def index():

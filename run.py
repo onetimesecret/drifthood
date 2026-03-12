@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+
+# drift-detector/run.py
+
 """
 Entry point for Drift Detector.
   python run.py
@@ -7,10 +10,10 @@ Entry point for Drift Detector.
 """
 
 import uvicorn
-from dd.config import HOST, PORT, HOST_A, HOST_B, DB_DRIVER, DB_PATH
+from dd.config import DB_DRIVER, DB_PATH, HOST, HOST_A, HOST_B, PORT
 
 if __name__ == "__main__":
-    print(f"Drift Detector starting...")
+    print("Drift Detector starting...")
     print(f"  HOST_A:    {HOST_A}")
     print(f"  HOST_B:    {HOST_B}")
     print(f"  DB_DRIVER: {DB_DRIVER}")

@@ -1,12 +1,15 @@
+# drift-detector/dd/openapi.py
+
 """
 OpenAPI spec parsing and schema diff routes.
 """
 
 import json
 from collections import defaultdict
+
 import requests as req
 import yaml
-from fastapi import APIRouter, UploadFile, File, Form
+from fastapi import APIRouter, File, Form, UploadFile
 
 router = APIRouter()
 
@@ -62,8 +65,10 @@ def extract_fields(schema: dict, spec: dict, prefix: str = "") -> list[dict]:
             "description": prop.get("description", ""),
         }
         if ftype in ("integer", "number"):
-            if "minimum" in prop: field["min"] = prop["minimum"]
-            if "maximum" in prop: field["max"] = prop["maximum"]
+            if "minimum" in prop:
+                field["min"] = prop["minimum"]
+            if "maximum" in prop:
+                field["max"] = prop["maximum"]
         # Recurse into nested objects
         if ftype == "object" and prop.get("properties"):
             field["nested"] = True
@@ -125,6 +130,7 @@ def parse_openapi(raw: str) -> dict:
     servers = spec.get("servers", [])
     if servers:
         from urllib.parse import urlparse
+
         parsed = urlparse(servers[0].get("url", ""))
         if parsed.path and parsed.path != "/":
             base_path = parsed.path.rstrip("/")
@@ -139,7 +145,15 @@ def parse_openapi(raw: str) -> dict:
     for path_template, path_item in paths.items():
         if not isinstance(path_item, dict):
             continue
-        for method in ["get", "post", "put", "delete", "patch", "head", "options"]:
+        for method in [
+            "get",
+            "post",
+            "put",
+            "delete",
+            "patch",
+            "head",
+            "options",
+        ]:
             op = path_item.get(method)
             if not op:
                 continue
@@ -164,7 +178,9 @@ def parse_openapi(raw: str) -> dict:
                     content_type = "application/json"
                     fields = extract_fields(schema, spec)
                 elif "application/x-www-form-urlencoded" in content:
-                    schema = content["application/x-www-form-urlencoded"].get("schema", {})
+                    schema = content["application/x-www-form-urlencoded"].get(
+                        "schema", {}
+                    )
                     body_hint = extract_example_body(schema, spec)
                     content_type = "application/x-www-form-urlencoded"
                     fields = extract_fields(schema, spec)
@@ -179,16 +195,21 @@ def parse_openapi(raw: str) -> dict:
                     ex = param.get("example", param.get("default", ""))
                     form_parts.append(f"{name}={ex}")
                     content_type = "application/x-www-form-urlencoded"
-                    fields.append({
-                        "name": name, "path": name,
-                        "type": param.get("type", "string"),
-                        "required": param.get("required", False),
-                        "example": param.get("example", param.get("default")),
-                        "enum": param.get("enum"),
-                        "const": None,
-                        "description": param.get("description", ""),
-                        "nested": False,
-                    })
+                    fields.append(
+                        {
+                            "name": name,
+                            "path": name,
+                            "type": param.get("type", "string"),
+                            "required": param.get("required", False),
+                            "example": param.get(
+                                "example", param.get("default")
+                            ),
+                            "enum": param.get("enum"),
+                            "const": None,
+                            "description": param.get("description", ""),
+                            "nested": False,
+                        }
+                    )
                 elif param.get("in") == "body":
                     schema = param.get("schema", {})
                     body_hint = extract_example_body(schema, spec)
@@ -208,16 +229,21 @@ def parse_openapi(raw: str) -> dict:
                     ex = param.get("example", param.get("default", ""))
                     if ex:
                         query_parts.append(f"{name}={ex}")
-                    query_fields.append({
-                        "name": name, "path": name,
-                        "type": param.get("type", "string"),
-                        "required": param.get("required", False),
-                        "example": param.get("example", param.get("default")),
-                        "enum": param.get("enum"),
-                        "const": None,
-                        "description": param.get("description", ""),
-                        "nested": False,
-                    })
+                    query_fields.append(
+                        {
+                            "name": name,
+                            "path": name,
+                            "type": param.get("type", "string"),
+                            "required": param.get("required", False),
+                            "example": param.get(
+                                "example", param.get("default")
+                            ),
+                            "enum": param.get("enum"),
+                            "const": None,
+                            "description": param.get("description", ""),
+                            "nested": False,
+                        }
+                    )
 
             display_path = full_path
             if query_parts and method.upper() == "GET":
@@ -228,29 +254,41 @@ def parse_openapi(raw: str) -> dict:
             for param in params:
                 param = resolve_ref(param, spec)
                 if param.get("in") == "path":
-                    path_fields.append({
-                        "name": param.get("name", ""), "path": param.get("name", ""),
-                        "type": param.get("type", param.get("schema", {}).get("type", "string")),
-                        "required": True,
-                        "example": param.get("example", param.get("default")),
-                        "enum": param.get("enum"),
-                        "const": None,
-                        "description": param.get("description", ""),
-                        "nested": False,
-                    })
+                    path_fields.append(
+                        {
+                            "name": param.get("name", ""),
+                            "path": param.get("name", ""),
+                            "type": param.get(
+                                "type",
+                                param.get("schema", {}).get("type", "string"),
+                            ),
+                            "required": True,
+                            "example": param.get(
+                                "example", param.get("default")
+                            ),
+                            "enum": param.get("enum"),
+                            "const": None,
+                            "description": param.get("description", ""),
+                            "nested": False,
+                        }
+                    )
 
-            operations.append({
-                "method": method.upper(),
-                "path": display_path,
-                "label": op_id or summary or f"{method.upper()} {path_template}",
-                "summary": summary,
-                "tags": tags,
-                "body": body_hint,
-                "content_type": content_type,
-                "fields": fields,
-                "query_fields": query_fields,
-                "path_fields": path_fields,
-            })
+            operations.append(
+                {
+                    "method": method.upper(),
+                    "path": display_path,
+                    "label": op_id
+                    or summary
+                    or f"{method.upper()} {path_template}",
+                    "summary": summary,
+                    "tags": tags,
+                    "body": body_hint,
+                    "content_type": content_type,
+                    "fields": fields,
+                    "query_fields": query_fields,
+                    "path_fields": path_fields,
+                }
+            )
 
     groups = group_operations(operations, base_path)
 
@@ -283,13 +321,17 @@ def group_operations(operations: list[dict], base_path: str) -> list[dict]:
     else:
         auto_prefix = ""
 
-    effective_prefix = auto_prefix if len(auto_prefix) > len(base_path) else base_path
+    effective_prefix = (
+        auto_prefix if len(auto_prefix) > len(base_path) else base_path
+    )
     prefix = effective_prefix.rstrip("/") + "/" if effective_prefix else "/"
 
     buckets = defaultdict(list)
     for op in operations:
         path = op["path"].split("?")[0]
-        relative = path[len(prefix):] if path.startswith(prefix) else path.lstrip("/")
+        relative = (
+            path[len(prefix) :] if path.startswith(prefix) else path.lstrip("/")
+        )
         segments = relative.split("/")
         group_key = segments[0] if segments else "(root)"
         buckets[group_key].append(op)
@@ -301,12 +343,19 @@ def group_operations(operations: list[dict], base_path: str) -> list[dict]:
         buckets = defaultdict(list)
         for op in operations:
             path = op["path"].split("?")[0]
-            relative = path[len(deeper_prefix):] if path.startswith(deeper_prefix) else path.lstrip("/")
+            relative = (
+                path[len(deeper_prefix) :]
+                if path.startswith(deeper_prefix)
+                else path.lstrip("/")
+            )
             segments = relative.split("/")
             group_key = segments[0] if segments else "(root)"
             buckets[group_key].append(op)
 
-    return [{"name": k, "count": len(v), "operations": v} for k, v in buckets.items()]
+    return [
+        {"name": k, "count": len(v), "operations": v}
+        for k, v in buckets.items()
+    ]
 
 
 # ---------------------------------------------------------------------------
@@ -330,19 +379,31 @@ def diff_operation_fields(fields_a: list[dict], fields_b: list[dict]) -> dict:
     for k in sorted(keys_a & keys_b):
         a, b = fp_a[k], fp_b[k]
         if a["type"] != b["type"]:
-            type_changed.append({"path": k, "type_a": a["type"], "type_b": b["type"]})
+            type_changed.append(
+                {"path": k, "type_a": a["type"], "type_b": b["type"]}
+            )
         if a.get("const") != b.get("const"):
-            const_changed.append({"path": k, "const_a": a.get("const"), "const_b": b.get("const")})
+            const_changed.append(
+                {
+                    "path": k,
+                    "const_a": a.get("const"),
+                    "const_b": b.get("const"),
+                }
+            )
 
     possible_renames = []
     for r in removed:
         for a in added:
             if r["type"] == a["type"] and r["name"] != a["name"]:
-                possible_renames.append({
-                    "old_path": r["path"], "new_path": a["path"],
-                    "old_name": r["name"], "new_name": a["name"],
-                    "type": r["type"],
-                })
+                possible_renames.append(
+                    {
+                        "old_path": r["path"],
+                        "new_path": a["path"],
+                        "old_name": r["name"],
+                        "new_name": a["name"],
+                        "type": r["type"],
+                    }
+                )
 
     return {
         "added": added,
@@ -357,7 +418,9 @@ def diff_operation_fields(fields_a: list[dict], fields_b: list[dict]) -> dict:
 # Routes
 # ---------------------------------------------------------------------------
 @router.post("/api/parse-openapi")
-async def parse_openapi_upload(file: UploadFile = File(None), url: str = Form(None)):
+async def parse_openapi_upload(
+    file: UploadFile = File(None), url: str = Form(None)
+):
     """Parse an OpenAPI spec from file upload or URL."""
     raw = None
     if file:
@@ -381,8 +444,10 @@ async def parse_openapi_upload(file: UploadFile = File(None), url: str = Form(No
 
 @router.post("/api/diff-schemas")
 async def diff_schemas(
-    file_a: UploadFile = File(None), file_b: UploadFile = File(None),
-    url_a: str = Form(None), url_b: str = Form(None),
+    file_a: UploadFile = File(None),
+    file_b: UploadFile = File(None),
+    url_a: str = Form(None),
+    url_b: str = Form(None),
 ):
     """Diff request schemas between two OpenAPI specs."""
     specs = {}
@@ -425,22 +490,42 @@ async def diff_schemas(
         op_b = lookup_b.get(key)
 
         if op_a and not op_b:
-            results.append({"method": method, "path": path, "status": "removed_from_b",
-                            "fields_a": op_a.get("fields", []), "fields_b": [], "diff": {}})
+            results.append(
+                {
+                    "method": method,
+                    "path": path,
+                    "status": "removed_from_b",
+                    "fields_a": op_a.get("fields", []),
+                    "fields_b": [],
+                    "diff": {},
+                }
+            )
         elif op_b and not op_a:
-            results.append({"method": method, "path": path, "status": "added_in_b",
-                            "fields_a": [], "fields_b": op_b.get("fields", []), "diff": {}})
+            results.append(
+                {
+                    "method": method,
+                    "path": path,
+                    "status": "added_in_b",
+                    "fields_a": [],
+                    "fields_b": op_b.get("fields", []),
+                    "diff": {},
+                }
+            )
         else:
             fields_a = op_a.get("fields", [])
             fields_b = op_b.get("fields", [])
             diff = diff_operation_fields(fields_a, fields_b)
             has_changes = any(diff[k] for k in diff)
-            results.append({
-                "method": method, "path": path,
-                "status": "changed" if has_changes else "identical",
-                "fields_a": fields_a, "fields_b": fields_b,
-                "diff": diff,
-            })
+            results.append(
+                {
+                    "method": method,
+                    "path": path,
+                    "status": "changed" if has_changes else "identical",
+                    "fields_a": fields_a,
+                    "fields_b": fields_b,
+                    "diff": diff,
+                }
+            )
 
     summary = {
         "spec_a": f"{spec_a['title']} {spec_a['version']}",

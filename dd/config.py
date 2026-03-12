@@ -1,3 +1,5 @@
+# drift-detector/dd/config.py
+
 """
 Centralized configuration. Every env var read lives here.
 Import `cfg` anywhere you need settings.
@@ -16,7 +18,9 @@ DB_DRIVER = os.environ.get("DD_DB_DRIVER", "sqlite")
 # For turso:  libsql:// URL (e.g. libsql://your-db-turso.turso.io)
 DB_PATH = os.environ.get(
     "DD_DB_PATH",
-    os.path.join(os.path.dirname(os.path.dirname(__file__)) or ".", "drift-detector.db"),
+    os.path.join(
+        os.path.dirname(os.path.dirname(__file__)) or ".", "drift-detector.db"
+    ),
 )
 # Turso auth token (only used when DB_DRIVER=turso)
 DB_AUTH_TOKEN = os.environ.get("DD_DB_AUTH_TOKEN", "")

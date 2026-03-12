@@ -1,8 +1,11 @@
+# drift-detector/dd/documents.py
+
 """
 Document and session CRUD routes.
 """
 
 from fastapi import APIRouter
+
 import dd.store as store
 
 router = APIRouter()
