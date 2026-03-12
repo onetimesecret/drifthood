@@ -123,6 +123,20 @@ def parse_openapi(raw: str) -> dict:
     except (json.JSONDecodeError, ValueError):
         spec = yaml.safe_load(raw)
 
+    if not isinstance(spec, dict):
+        # Detect HTML responses (e.g. Vite SPA fallback, error pages)
+        content_hint = "HTML" if raw.lstrip()[:1] == "<" else "plain text"
+        raise ValueError(
+            f"URL did not return a valid OpenAPI specification "
+            f"(expected JSON or YAML, got {content_hint})"
+        )
+
+    if not spec.get("paths") and not spec.get("openapi") and not spec.get("swagger"):
+        raise ValueError(
+            "Content parsed as JSON/YAML but does not appear to be an OpenAPI spec "
+            "(missing 'paths', 'openapi', or 'swagger' keys)"
+        )
+
     info = spec.get("info", {})
     base_path = ""
 

@@ -56,7 +56,7 @@ export function getEndpoint(id) {
 }
 
 export function clearEndpoints() {
-  endpoints.length = 0;
+  endpoints.splice(0, endpoints.length);
   nextId = 0;
 }
 
