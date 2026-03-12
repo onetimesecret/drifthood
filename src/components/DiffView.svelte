@@ -7,9 +7,18 @@
   let { result, endpointId } = $props();
 
   let sections = $derived(result?.has_drift ? parseDiff(result.diff) : []);
-  let ignoredCount = $derived(result?.ignored_paths?.length ?? 0);
+
+  // Only show ignored-fields badge when both sides returned real responses
+  // (not connection errors). Showing "6 fields ignored" on a connection
+  // error is misleading — there was nothing to ignore.
+  let isRealComparison = $derived(
+    result?.response_a?.status != null && result?.response_b?.status != null
+  );
+  let ignoredCount = $derived(isRealComparison ? (result?.ignored_paths?.length ?? 0) : 0);
   let ignoredTooltip = $derived(
-    result?.ignored_paths ? result.ignored_paths.map(prettifyPath).join('\n') : ''
+    ignoredCount > 0 && result?.ignored_paths
+      ? result.ignored_paths.map(prettifyPath).join('\n')
+      : ''
   );
 
   let copyLabel = $state('Copy summary');

@@ -84,6 +84,30 @@
     return resp.status == null && resp.error;
   }
 
+  function isHttpError(resp) {
+    return resp.status != null && resp.status >= 400;
+  }
+
+  // Determine badge text and class:
+  // - DRIFT when responses differ
+  // - MATCH when responses agree but both are errors (connection or HTTP 4xx/5xx)
+  // - OK when responses agree and at least one is a success
+  let badgeText = $derived.by(() => {
+    if (!r) return '';
+    if (r.has_drift) return 'DRIFT';
+    const bothError = (isErrorResponse(r.response_a) || isHttpError(r.response_a))
+                   && (isErrorResponse(r.response_b) || isHttpError(r.response_b));
+    return bothError ? 'MATCH' : 'OK';
+  });
+
+  let badgeClass = $derived.by(() => {
+    if (!r) return '';
+    if (r.has_drift) return 'badge-drift';
+    const bothError = (isErrorResponse(r.response_a) || isHttpError(r.response_a))
+                   && (isErrorResponse(r.response_b) || isHttpError(r.response_b));
+    return bothError ? 'badge-match' : 'badge-ok';
+  });
+
   function formatReqHeaders(result, side) {
     const resp = side === 'a' ? result.response_a : result.response_b;
     if (isErrorResponse(resp)) {
@@ -168,7 +192,7 @@
   <div class="ep-result">
     <div class="ep-result-header" role="button" tabindex="0" onclick={toggleBody} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleBody(); } }}>
       <span class="chevron" class:open={expanded}>&#9654;</span>
-      <span class="ep-result-badge {r.has_drift ? 'badge-drift' : 'badge-ok'}">{r.has_drift ? 'DRIFT' : 'OK'}</span>
+      <span class="ep-result-badge {badgeClass}">{badgeText}</span>
       <span class="result-meta">{metaStatus} {metaSize}</span>
       <span class="ep-result-timing">{metaTiming}</span>
     </div>
