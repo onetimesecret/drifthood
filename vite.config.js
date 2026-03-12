@@ -5,6 +5,7 @@ import { svelte } from '@sveltejs/vite-plugin-svelte';
 export default defineConfig({
   plugins: [tailwindcss(), svelte()],
   server: {
+    port: 5899,
     proxy: {
       '/api': 'http://localhost:8899',
     },

@@ -38,29 +38,30 @@
   }
 </script>
 
-<div class="ignore-config">
-  <div class="ignore-label" onclick={togglePanel} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && togglePanel()}>
-    <span class="chevron" class:open={ui.ignoreOpen}>&#9654;</span>
+<div class="mb-5">
+  <div class="text-[0.7em] uppercase tracking-widest text-text-dim mb-1 font-semibold cursor-pointer flex items-center gap-1.5 select-none" onclick={togglePanel} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && togglePanel()}>
+    <span class="text-[0.8em] chevron" class:open={ui.ignoreOpen}>&#9654;</span>
     Ignored Fields
     {#if customCount > 0}
-      <span class="ignore-count">({customCount} custom)</span>
+      <span class="text-[0.7em] text-text-dim font-mono ml-auto">({customCount} custom)</span>
     {/if}
   </div>
 
-  <div class="ignore-body" class:open={ui.ignoreOpen}>
+  <div class="toggle-block" class:open={ui.ignoreOpen}>
     <textarea
+      class="bg-bg border border-edge text-text-primary px-2.5 py-2 rounded-md font-mono text-[0.8em] w-full min-h-[80px] resize-y leading-relaxed"
       placeholder={"body.created\nbody.updated\nbody.custid"}
       value={textValue}
       oninput={onTextInput}
     ></textarea>
-    <div class="ignore-hint">
+    <div class="text-[0.7em] text-text-dim mt-1">
       One path per line in dot notation (e.g. body.created). These fields will be excluded from comparison.
-      The server has <button type="button" onclick={toggleDefaults} style="color:var(--accent);background:none;border:none;padding:0;font:inherit;cursor:pointer;text-decoration:none">built-in defaults</button>;
+      The server has <button type="button" onclick={toggleDefaults} class="text-accent bg-transparent border-none p-0 font-[inherit] cursor-pointer no-underline">built-in defaults</button>;
       paths here are added on top.
     </div>
 
     {#if showDefaults}
-      <div style="margin-top:6px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:0.75em;color:var(--text-dim);white-space:pre-line">
+      <div class="mt-1.5 px-2 py-1.5 bg-bg border border-edge rounded font-mono text-[0.75em] text-text-dim whitespace-pre-line">
         {#if serverDefaults}
           {serverDefaults.map(prettifyPath).join('\n')}
         {:else}

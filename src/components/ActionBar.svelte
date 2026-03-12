@@ -256,37 +256,37 @@
   }
 </script>
 
-<div class="action-bar">
+<div class="sticky top-0 z-15 bg-bg py-2 pb-2.5 flex gap-2.5 items-center flex-wrap border-b border-edge mb-2.5">
   <button class="btn-ghost" onclick={addEndpointDefault}>+ Add Endpoint</button>
 
   <!-- Examples menu -->
-  <div class="action-menu">
+  <div class="action-menu relative inline-block">
     <button class="btn-ghost" onclick={() => toggleMenu('examples')}>Examples</button>
-    <div class="action-dropdown" class:open={openMenu === 'examples'}>
-      <div class="menu-desc">Load example endpoint sets</div>
-      <button onclick={() => loadExampleSet('mixed')}>Mixed (GET + form + json)</button>
-      <button onclick={() => loadExampleSet('query-only')}>Query-only (GET)</button>
-      <button onclick={() => loadExampleSet('form-only')}>Form-only (POST)</button>
-      <button onclick={() => loadExampleSet('json-only')}>JSON-only (POST)</button>
+    <div class="toggle-block absolute top-full left-0 bg-surface border border-edge rounded-lg p-1 z-10 min-w-[260px] mt-1 shadow-[0_8px_24px_rgba(0,0,0,0.4)]" class:open={openMenu === 'examples'}>
+      <div class="text-[0.75em] text-text-dim px-3 py-1">Load example endpoint sets</div>
+      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" onclick={() => loadExampleSet('mixed')}>Mixed (GET + form + json)</button>
+      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" onclick={() => loadExampleSet('query-only')}>Query-only (GET)</button>
+      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" onclick={() => loadExampleSet('form-only')}>Form-only (POST)</button>
+      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" onclick={() => loadExampleSet('json-only')}>JSON-only (POST)</button>
     </div>
   </div>
 
   <!-- Import menu -->
-  <div class="action-menu">
+  <div class="action-menu relative inline-block">
     <button class="btn-ghost" onclick={() => toggleMenu('import')}>Import</button>
-    <div class="action-dropdown" class:open={openMenu === 'import'}>
-      <button onclick={openOpenapiModal}>From OpenAPI spec...</button>
-      <button onclick={triggerImport}>From file (.json/.html)...</button>
-      <div class="menu-hint">Or drag &amp; drop a file onto the page</div>
+    <div class="toggle-block absolute top-full left-0 bg-surface border border-edge rounded-lg p-1 z-10 min-w-[260px] mt-1 shadow-[0_8px_24px_rgba(0,0,0,0.4)]" class:open={openMenu === 'import'}>
+      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" onclick={openOpenapiModal}>From OpenAPI spec...</button>
+      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" onclick={triggerImport}>From file (.json/.html)...</button>
+      <div class="text-[0.7em] text-text-dim px-3 py-1.5 border-t border-edge mt-1">Or drag &amp; drop a file onto the page</div>
     </div>
   </div>
 
   <!-- Export menu -->
-  <div class="action-menu">
+  <div class="action-menu relative inline-block">
     <button class="btn-ghost" onclick={() => toggleMenu('export')}>Export</button>
-    <div class="action-dropdown" class:open={openMenu === 'export'}>
-      <button onclick={exportJson}>Current state as JSON</button>
-      <button onclick={exportHtml}>Snapshot as HTML</button>
+    <div class="toggle-block absolute top-full left-0 bg-surface border border-edge rounded-lg p-1 z-10 min-w-[260px] mt-1 shadow-[0_8px_24px_rgba(0,0,0,0.4)]" class:open={openMenu === 'export'}>
+      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" onclick={exportJson}>Current state as JSON</button>
+      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" onclick={exportHtml}>Snapshot as HTML</button>
     </div>
   </div>
 
@@ -294,7 +294,7 @@
 
   <button class="btn-primary" onclick={runAll} disabled={running || total === 0}>
     {#if running}
-      <span class="spinner"></span> Running...
+      <span class="inline-block w-3 h-3 border-2 border-edge border-t-accent rounded-full animate-spin"></span> Running...
     {:else}
       Run All
     {/if}
@@ -303,20 +303,20 @@
   <button class="btn-ghost" onclick={handleClearRuns} disabled={!hasResults}>Clear Runs</button>
 
   {#if hasResults}
-    <div class="filter-pills">
-      <button class:active={ui.filter === 'all'} onclick={() => setFilter('all')}>All</button>
-      <button class:active={ui.filter === 'drift'} onclick={() => setFilter('drift')}>Drifts</button>
-      <button class:active={ui.filter === 'ok'} onclick={() => setFilter('ok')}>OK</button>
+    <div class="flex gap-1">
+      <button class="text-[0.7em] px-2 py-0.5 rounded-full cursor-pointer border bg-bg {ui.filter === 'all' ? 'border-accent text-accent bg-accent/10' : 'border-edge text-text-dim'}" onclick={() => setFilter('all')}>All</button>
+      <button class="text-[0.7em] px-2 py-0.5 rounded-full cursor-pointer border bg-bg {ui.filter === 'drift' ? 'border-accent text-accent bg-accent/10' : 'border-edge text-text-dim'}" onclick={() => setFilter('drift')}>Drifts</button>
+      <button class="text-[0.7em] px-2 py-0.5 rounded-full cursor-pointer border bg-bg {ui.filter === 'ok' ? 'border-accent text-accent bg-accent/10' : 'border-edge text-text-dim'}" onclick={() => setFilter('ok')}>OK</button>
     </div>
   {/if}
 
-  <div class="tally">
+  <div class="text-[0.8em] font-mono ml-auto">
     {#if ran === 0}
-      <span class="t-dim">{total} endpoint{total !== 1 ? 's' : ''}</span>
+      <span class="text-text-dim">{total} endpoint{total !== 1 ? 's' : ''}</span>
     {:else}
-      <span class="t-drift">{driftCount} drift</span>
-      {' '}<span class="t-ok">{okCount} ok</span>
-      {' '}<span class="t-dim">({ran}/{total})</span>
+      <span class="text-red font-semibold">{driftCount} drift</span>
+      {' '}<span class="text-green font-semibold">{okCount} ok</span>
+      {' '}<span class="text-text-dim">({ran}/{total})</span>
     {/if}
   </div>
 </div>
@@ -325,7 +325,7 @@
 <input
   type="file"
   accept=".json,.html,.htm"
-  style="display:none"
+  class="hidden"
   bind:this={fileInput}
   onchange={handleFileImport}
 />

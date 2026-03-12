@@ -130,58 +130,60 @@
 </script>
 
 <Modal open={open} onclose={handleClose}>
-  <div class="modal-header">
-    <h3>Import from OpenAPI Spec</h3>
-    <button class="modal-close" onclick={handleClose}>&times;</button>
+  <div class="flex items-center justify-between px-[18px] py-3.5 border-b border-edge">
+    <h3 class="text-[0.95em] font-semibold">Import from OpenAPI Spec</h3>
+    <button class="bg-transparent border-none text-text-dim cursor-pointer text-[1.3em] px-1 rounded hover:text-red" onclick={handleClose}>&times;</button>
   </div>
 
-  <div class="modal-body">
-    <div class="openapi-input-row">
-      <input type="text" bind:value={specUrl} placeholder="https://example.com/openapi.yaml" style="flex:1" />
+  <div class="p-[18px] overflow-y-auto flex-1">
+    <div class="flex gap-2 items-center mb-3 flex-wrap">
+      <input type="text" bind:value={specUrl} placeholder="https://example.com/openapi.yaml" class="bg-bg border border-edge text-text-primary px-2.5 py-1.5 rounded-md font-mono text-[0.85em] flex-1 min-w-[200px]" />
       <button class="btn-secondary" onclick={loadSpecFromUrl} disabled={loading}>Fetch</button>
-      <span class="openapi-or">or</span>
-      <input type="file" accept=".json,.yaml,.yml" onchange={loadSpecFromFile} />
+      <span class="text-text-dim text-[0.8em] px-1">or</span>
+      <input type="file" accept=".json,.yaml,.yml" onchange={loadSpecFromFile} class="text-[0.8em] text-text-dim" />
     </div>
 
     {#if infoText}
-      <div class="openapi-info">{infoText}</div>
+      <div class="text-[0.8em] text-text-dim mb-2.5 font-mono">{infoText}</div>
     {/if}
 
     {#if parsedSpec}
-      <div class="openapi-info">
+      <div class="text-[0.8em] text-text-dim mb-2.5 font-mono">
         <strong>{parsedSpec.title}</strong> {parsedSpec.version} &mdash; {parsedSpec.total_operations} ops in {parsedSpec.groups.length} groups
       </div>
 
-      <div style="display:flex;gap:8px;margin-bottom:8px">
+      <div class="flex gap-2 mb-2">
         <button class="btn-ghost" onclick={() => selectAll(true)}>Select All</button>
         <button class="btn-ghost" onclick={() => selectAll(false)}>Deselect All</button>
       </div>
 
-      <div class="openapi-groups">
+      <div class="max-h-[400px] overflow-y-auto">
         {#each parsedSpec.groups as g, gi}
-          <div class="openapi-group">
-            <div class="openapi-group-header" role="button" tabindex="0" onclick={() => toggleGroup(gi)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGroup(gi); } }}>
+          <div class="mb-2 border border-edge rounded-md overflow-hidden">
+            <div class="flex items-center gap-2 px-3 py-2 cursor-pointer select-none bg-white/[0.02] hover:bg-white/[0.04]" role="button" tabindex="0" onclick={() => toggleGroup(gi)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGroup(gi); } }}>
               <input
                 type="checkbox"
                 checked={groupChecked[gi]}
+                class="m-0 accent-accent"
                 onclick={(e) => { e.stopPropagation(); toggleGroupCheck(gi, e.target.checked); }}
               />
               <span class="chevron" class:open={groupsOpen[gi]}>&#9654;</span>
-              <span class="openapi-group-name">{g.name}</span>
-              <span class="openapi-group-count">{g.count} ops</span>
+              <span class="font-semibold font-mono text-[0.85em]">{g.name}</span>
+              <span class="text-text-dim text-[0.75em]">{g.count} ops</span>
             </div>
-            <div class="openapi-group-body" class:open={groupsOpen[gi]}>
+            <div class="toggle-block px-3 py-1 pb-2" class:open={groupsOpen[gi]}>
               {#each g.operations as op, oi}
-                <div class="openapi-op">
+                <div class="flex items-center gap-2 py-1 text-[0.8em] font-mono">
                   <input
                     type="checkbox"
                     checked={opChecked[gi]?.[oi] ?? true}
+                    class="m-0 accent-accent"
                     onchange={(e) => { opChecked[gi][oi] = e.target.checked; }}
                   />
-                  <span class="op-method {op.method.toLowerCase()}">{op.method}</span>
-                  <span class="op-path">{op.path}</span>
+                  <span class="font-semibold w-[52px] text-right {op.method.toLowerCase() === 'get' ? 'text-green' : op.method.toLowerCase() === 'post' ? 'text-accent' : op.method.toLowerCase() === 'put' ? 'text-yellow' : op.method.toLowerCase() === 'delete' ? 'text-red' : op.method.toLowerCase() === 'patch' ? 'text-purple' : ''}">{op.method}</span>
+                  <span class="text-text-primary">{op.path}</span>
                   {#if op.summary}
-                    <span class="op-summary">{op.summary}</span>
+                    <span class="text-text-dim ml-2 italic">{op.summary}</span>
                   {/if}
                 </div>
               {/each}
@@ -193,7 +195,7 @@
   </div>
 
   {#if parsedSpec}
-    <div class="modal-footer has-spec">
+    <div class="flex gap-2 px-[18px] py-3 border-t border-edge">
       <button class="btn-primary" onclick={loadSelectedToEndpoints}>Load Selected</button>
     </div>
   {/if}

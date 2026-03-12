@@ -442,28 +442,28 @@
   }
 </script>
 
-<div class="app-layout">
+<div class="flex min-h-screen -m-5">
   <Sidebar onBreadcrumb={(text) => breadcrumbText = text} />
 
-  <div class="main-panel">
+  <div class="flex-1 p-5 overflow-x-hidden min-w-0">
     <!-- Header -->
-    <div style="display:flex;align-items:center;gap:12px;margin-bottom:4px">
-      <h1>Drift Detector <span style="font-size:0.5em;font-weight:400;opacity:0.5">v{DD_VERSION}</span></h1>
+    <div class="flex items-center gap-3 mb-1">
+      <h1 class="text-[1.4em] font-semibold mb-1">Drift Detector <span class="text-[0.5em] font-normal opacity-50">v{DD_VERSION}</span></h1>
       <button
-        class="btn-ghost"
-        style="margin-left:auto;{saveStatus.color ? `color:${saveStatus.color}` : ''}"
+        class="btn-ghost ml-auto"
+        style={saveStatus.color ? `color:${saveStatus.color}` : ''}
         onclick={saveSession}
         disabled={saveStatus.disabled}
       >{saveStatus.text}</button>
       {#if docIndicator}
-        <span style="font-size:0.7em;color:var(--text-dim);font-family:var(--mono)" title="Save updates the current session. Autosave creates new snapshots when state changes.">{docIndicator}</span>
+        <span class="text-[0.7em] text-text-dim font-mono" title="Save updates the current session. Autosave creates new snapshots when state changes.">{docIndicator}</span>
       {/if}
     </div>
 
     <!-- Session header -->
-    <div class="session-header">
+    <div class="mb-4">
       <input
-        class="session-title"
+        class="bg-transparent border-none text-text-primary text-[1.1em] font-semibold font-[inherit] w-full px-0 py-1 outline-none border-b border-b-transparent focus:border-b-accent placeholder:text-text-dim placeholder:font-normal"
         type="text"
         placeholder="Session title (optional)"
         bind:value={session.title}
@@ -471,7 +471,7 @@
         onblur={onTitleBlur}
       />
       <textarea
-        class="session-memo"
+        class="bg-transparent border-none text-text-dim text-[0.8em] font-[inherit] w-full px-0 py-0.5 outline-none resize-none border-b border-b-transparent focus:border-b-edge focus:text-text-primary leading-snug placeholder:text-text-dim"
         placeholder="Notes / context for this comparison session"
         rows="1"
         bind:value={session.memo}
@@ -479,7 +479,7 @@
     </div>
 
     <!-- Host config -->
-    <div class="config">
+    <div class="flex gap-3 items-start mb-5 flex-wrap">
       <HostConfig side="A" />
       <HostConfig side="B" />
     </div>
@@ -488,36 +488,36 @@
     <IgnoreConfig />
 
     <!-- Endpoints section label -->
-    <div class="section-label">Endpoints</div>
+    <div class="text-[0.7em] uppercase tracking-widest text-text-dim mb-2 font-semibold">Endpoints</div>
 
     <!-- Action bar -->
     <ActionBar />
 
     <!-- Breadcrumb -->
     {#if breadcrumbText}
-      <div class="loader-breadcrumb" style="display:flex">
-        <span class="breadcrumb-source">{breadcrumbText}</span>
-        <button class="breadcrumb-dismiss" onclick={dismissBreadcrumb}>&times;</button>
+      <div class="flex items-center gap-2 text-[0.75em] font-mono text-text-dim px-2.5 py-1 bg-surface border border-edge rounded mb-2.5">
+        <span class="text-accent">{breadcrumbText}</span>
+        <button class="cursor-pointer text-text-dim bg-transparent border-none text-[1em] px-1 hover:text-red" onclick={dismissBreadcrumb}>&times;</button>
       </div>
     {/if}
 
     <!-- Endpoint cards with group dividers -->
-    <div class="endpoints-area">
+    <div class="mb-5">
       {#each groupedEntries as entry (entry.type === 'card' ? `card-${entry.ep.id}` : `div-${entry.group}`)}
         {#if entry.type === 'divider'}
-          <div class="group-divider">
-            <span class="group-name">{entry.group}</span>
-            <span class="group-count">{entry.count}</span>
-            <span class="group-tally">
+          <div class="text-[0.75em] font-mono text-text-dim pt-2.5 pb-1 border-b border-edge mb-2 flex items-center gap-2">
+            <span class="font-semibold text-text-primary">{entry.group}</span>
+            <span class="text-text-dim">{entry.count}</span>
+            <span class="text-[0.9em]">
               {#if entry.driftCount + entry.okCount > 0}
                 {#if entry.driftCount}
-                  <span style="color:var(--red)">{entry.driftCount} drift</span>
+                  <span class="text-red">{entry.driftCount} drift</span>
                 {:else}
-                  <span style="color:var(--green)">all ok</span>
+                  <span class="text-green">all ok</span>
                 {/if}
               {/if}
             </span>
-            <button class="group-run-btn" onclick={() => runGroup(entry.group)}>run group</button>
+            <button class="bg-transparent border border-edge text-text-dim cursor-pointer text-[0.85em] px-2 py-0.5 rounded ml-auto hover:text-accent hover:border-accent" onclick={() => runGroup(entry.group)}>run group</button>
           </div>
         {:else}
           <EndpointCard endpoint={entry.ep} />
@@ -526,11 +526,12 @@
     </div>
 
     <!-- Back to top -->
-    <button
-      class="back-to-top"
-      style="display:{showBackToTop ? 'flex' : 'none'}"
-      onclick={scrollToTop}
-    >&#8593;</button>
+    {#if showBackToTop}
+      <button
+        class="fixed bottom-6 right-6 bg-surface border border-edge text-accent w-10 h-10 rounded-full cursor-pointer text-[1.2em] flex items-center justify-center z-30 shadow-[0_4px_12px_rgba(0,0,0,0.4)] hover:bg-accent/15"
+        onclick={scrollToTop}
+      >&#8593;</button>
+    {/if}
   </div>
 </div>
 
@@ -539,15 +540,17 @@
 <SchemaDiff open={ui.activeModal === 'schema-diff'} onclose={() => { ui.activeModal = null; }} />
 
 <!-- Drop overlay -->
-<div class="drop-overlay" class:active={dropActive}>
-  <div class="drop-overlay-inner">
-    <div class="drop-icon">&#128230;</div>
-    <div class="drop-label">Drop to import</div>
-    <div class="drop-hint">.json (session) or .html (snapshot)</div>
+{#if dropActive}
+  <div class="fixed inset-0 z-100 bg-[rgba(13,17,23,0.85)] flex items-center justify-center pointer-events-none">
+    <div class="border-2 border-dashed border-accent rounded-2xl px-16 py-12 text-center text-accent font-mono">
+      <div class="text-[2.5em] mb-3">&#128230;</div>
+      <div class="text-[1em] font-semibold">Drop to import</div>
+      <div class="text-[0.75em] text-text-dim mt-2">.json (session) or .html (snapshot)</div>
+    </div>
   </div>
-</div>
+{/if}
 
 <!-- Drop toast -->
 {#if toast.visible}
-  <div class="drop-toast {toast.cls}" style="display:block">{toast.text}</div>
+  <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] bg-surface border rounded-lg px-5 py-2.5 text-[0.85em] font-mono shadow-[0_8px_24px_rgba(0,0,0,0.4)] {toast.cls === 'error' ? 'border-red text-red' : toast.cls === 'ok' ? 'border-green text-green' : 'border-text-dim text-text-dim opacity-80 text-[0.78em]'}">{toast.text}</div>
 {/if}

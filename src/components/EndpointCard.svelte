@@ -28,11 +28,17 @@
   let showBodyInput = $derived(!showKvPairs && !(endpoint.fieldsMode === 'on' && hasBodyFields));
   let hasResult = $derived(endpoint.result != null || endpoint.state === 'running');
 
-  let stateClass = $derived(
-    endpoint.state === 'done-drift' ? 'state-drift'
-    : endpoint.state === 'done-ok' ? 'state-ok'
-    : endpoint.state === 'running' ? 'state-running'
-    : ''
+  let stateBorder = $derived(
+    endpoint.state === 'done-drift' ? 'border-red/40'
+    : endpoint.state === 'done-ok' ? 'border-green/20'
+    : endpoint.state === 'running' ? 'border-accent/30'
+    : 'border-edge'
+  );
+
+  let ctClasses = $derived(
+    ct.cls === 'json' ? 'text-accent border-accent'
+    : ct.cls === 'form' ? 'text-yellow border-yellow'
+    : 'text-text-dim border-edge'
   );
 
   let kvType = $derived(ct === CT.query ? 'query' : 'form');
@@ -157,9 +163,10 @@
   }
 </script>
 
-<div class="ep-card {stateClass}">
-  <div class="ep-config">
+<div class="bg-surface border {stateBorder} rounded-lg mb-2 overflow-hidden transition-colors duration-200">
+  <div class="flex gap-2 items-center px-3 py-2">
     <select
+      class="bg-bg border border-edge text-text-primary px-2 py-1 rounded text-[0.85em] font-mono w-[80px]"
       value={endpoint.method}
       onchange={(e) => updateEndpoint(endpoint.id, { method: e.target.value })}
     >
@@ -171,7 +178,7 @@
 
     <input
       type="text"
-      class="path-input"
+      class="bg-bg border border-edge text-text-primary px-2 py-1 rounded text-[0.85em] font-mono flex-1 min-w-[180px]"
       placeholder="/api/v1/status"
       value={endpoint.path}
       oninput={(e) => updateEndpoint(endpoint.id, { path: e.target.value })}
@@ -180,16 +187,15 @@
     {#if showBodyInput}
       <input
         type="text"
-        class="body-input"
+        class="bg-bg border text-text-primary px-2 py-1 rounded text-[0.85em] font-mono flex-[1.5] min-w-[180px] {ct.cls === 'json' ? 'border-accent' : 'border-edge'}"
         placeholder={ct.placeholder}
         value={endpoint.body}
         oninput={(e) => updateEndpoint(endpoint.id, { body: e.target.value })}
-        style={ct.cls === 'json' ? 'border-color:var(--accent)' : ''}
       />
     {/if}
 
     <button
-      class="ct-toggle {ct.cls}"
+      class="text-[0.65em] font-mono px-[7px] py-[3px] rounded cursor-pointer border bg-bg whitespace-nowrap min-w-[48px] text-center select-none uppercase tracking-wider {ctClasses}"
       type="button"
       onclick={toggleCt}
       title="query / form / json"
@@ -198,19 +204,18 @@
     {#if hasAnyFields}
       <button
         type="button"
-        class="ep-fields-toggle"
-        class:active={endpoint.fieldsMode === 'on'}
+        class="text-[0.65em] font-mono px-[7px] py-[3px] rounded cursor-pointer border border-edge bg-bg whitespace-nowrap select-none {endpoint.fieldsMode === 'on' ? 'text-purple border-purple' : 'text-text-dim'}"
         onclick={toggleFieldsMode}
         title="Toggle per-field inputs"
       >FIELDS</button>
     {/if}
 
     {#if fromSpec}
-      <span class="group-tag" title={endpoint.label}>{shortLabel}</span>
+      <span class="text-[0.6em] text-text-dim font-mono bg-bg px-1.5 py-0.5 rounded-sm border border-edge" title={endpoint.label}>{shortLabel}</span>
     {:else}
       <input
         type="text"
-        class="label-input"
+        class="bg-bg border border-edge text-text-primary px-2 py-1 rounded text-[0.85em] font-mono w-[140px]"
         placeholder="label"
         value={endpoint.label}
         oninput={(e) => updateEndpoint(endpoint.id, { label: e.target.value })}
@@ -218,17 +223,17 @@
     {/if}
 
     {#if endpoint.group}
-      <span class="group-tag">{endpoint.group}</span>
+      <span class="text-[0.6em] text-text-dim font-mono bg-bg px-1.5 py-0.5 rounded-sm border border-edge">{endpoint.group}</span>
     {/if}
 
-    <button class="ep-run-btn" onclick={runOne} title="Run this endpoint">
+    <button class="bg-transparent border border-edge text-text-dim cursor-pointer text-[0.75em] px-2 py-[3px] rounded font-mono hover:text-accent hover:border-accent" onclick={runOne} title="Run this endpoint">
       {#if endpoint.state === 'running'}
-        <span class="spinner"></span>
+        <span class="inline-block w-3 h-3 border-2 border-edge border-t-accent rounded-full animate-spin"></span>
       {:else}
         run
       {/if}
     </button>
-    <button class="remove-btn" onclick={remove} title="Remove">&times;</button>
+    <button class="bg-transparent border-none text-text-dim cursor-pointer text-[1.1em] px-1.5 py-0.5 rounded hover:text-red hover:bg-red/10" onclick={remove} title="Remove">&times;</button>
   </div>
 
   {#if showKvPairs}
@@ -241,10 +246,10 @@
 
   {#if hasResult}
     {#if endpoint.state === 'running' && !endpoint.result}
-      <div class="ep-result">
-        <div class="ep-result-header">
-          <span class="spinner"></span>
-          <span style="color:var(--accent);font-size:0.85em">Running...</span>
+      <div class="border-t border-edge">
+        <div class="flex items-center gap-2.5 px-3 py-2 text-[0.85em]">
+          <span class="inline-block w-3 h-3 border-2 border-edge border-t-accent rounded-full animate-spin"></span>
+          <span class="text-accent text-[0.85em]">Running...</span>
         </div>
       </div>
     {:else}

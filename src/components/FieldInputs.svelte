@@ -53,8 +53,8 @@
 
   function indentClass(field) {
     const depth = (field.path.match(/\./g) || []).length;
-    if (depth >= 2) return ' field-indent-2';
-    if (depth >= 1) return ' field-indent-1';
+    if (depth >= 2) return ' pl-8';
+    if (depth >= 1) return ' pl-4';
     return '';
   }
 
@@ -65,28 +65,29 @@
 
 {#snippet fieldGroup(fields, label)}
   {#if fields.length > 0}
-    <div style="font-size:0.65em;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-dim);margin:6px 0 4px">
+    <div class="text-[0.65em] uppercase tracking-wider text-text-dim my-1.5 mb-1">
       {label}
     </div>
     {#each fields as f}
       {#if f.nested}
-        <div class="field-row{indentClass(f)}">
-          <span class="field-name nested-parent">{f.path}</span>
-          <span class="field-type">object</span>
+        <div class="flex items-center gap-1.5 mb-1 text-[0.8em] font-mono{indentClass(f)}">
+          <span class="min-w-[140px] text-text-dim font-semibold flex items-center gap-1">{f.path}</span>
+          <span class="text-[0.85em] text-text-dim min-w-[52px]">object</span>
         </div>
       {:else}
-        <div class="field-row{indentClass(f)}">
-          <span class="field-name">
-            {#if f.required}<span class="req-dot" title="required"></span>{/if}
+        <div class="flex items-center gap-1.5 mb-1 text-[0.8em] font-mono{indentClass(f)}">
+          <span class="min-w-[140px] text-text-primary flex items-center gap-1">
+            {#if f.required}<span class="w-1.5 h-1.5 rounded-full bg-red shrink-0" title="required"></span>{/if}
             {f.name}
           </span>
-          <span class="field-type">{f.type}</span>
+          <span class="text-[0.85em] text-text-dim min-w-[52px]">{f.type}</span>
 
           {#if f.const != null}
-            <span class="field-const">{String(f.const)}</span>
+            <span class="text-yellow text-[0.85em]">{String(f.const)}</span>
             <input type="hidden" value={String(f.const)} />
           {:else if f.enum}
             <select
+              class="bg-bg border border-edge text-text-primary px-1.5 py-0.5 rounded font-mono text-[0.9em] flex-1 min-w-[100px]"
               value={fieldValues[f.path] ?? ''}
               onchange={(e) => onFieldChange(f.path, e.target.value)}
             >
@@ -96,6 +97,7 @@
             </select>
           {:else if f.type === 'boolean'}
             <select
+              class="bg-bg border border-edge text-text-primary px-1.5 py-0.5 rounded font-mono text-[0.9em] flex-1 min-w-[100px]"
               value={fieldValues[f.path] ?? 'true'}
               onchange={(e) => onFieldChange(f.path, e.target.value)}
             >
@@ -104,6 +106,7 @@
             </select>
           {:else if f.type === 'integer' || f.type === 'number'}
             <input
+              class="bg-bg border border-edge text-text-primary px-1.5 py-0.5 rounded font-mono text-[0.9em] flex-1 min-w-[100px]"
               type="number"
               value={fieldValues[f.path] ?? ''}
               min={f.min ?? undefined}
@@ -114,6 +117,7 @@
             />
           {:else}
             <input
+              class="bg-bg border border-edge text-text-primary px-1.5 py-0.5 rounded font-mono text-[0.9em] flex-1 min-w-[100px]"
               type="text"
               value={fieldValues[f.path] ?? ''}
               title={f.description ?? undefined}
@@ -127,7 +131,7 @@
   {/if}
 {/snippet}
 
-<div class="ep-fields">
+<div class="px-3 py-1.5 pb-2.5 border-t border-edge">
   {@render fieldGroup(pathFields, 'Path Parameters')}
   {@render fieldGroup(queryFields, 'Query Parameters')}
   {@render fieldGroup(bodyFields, 'Request Body')}

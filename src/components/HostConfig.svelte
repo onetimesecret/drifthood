@@ -39,18 +39,19 @@
   }
 </script>
 
-<div class="host-pair">
-  <div class="pair-label">
+<div class="flex flex-col gap-1.5 px-3 py-2.5 bg-surface border border-edge rounded-lg flex-1 min-w-[300px]">
+  <div class="text-[0.75em] font-semibold text-text-primary mb-0.5 flex items-center gap-2">
     Host {side}
     <button
-      class="host-test-btn {testStatus.cls}"
+      class="text-[0.8em] px-2 py-0.5 rounded cursor-pointer bg-transparent border border-edge text-text-dim font-mono ml-auto hover:text-accent hover:border-accent {testStatus.cls === 'ok' ? 'text-green border-green' : ''} {testStatus.cls === 'fail' ? 'text-red border-red' : ''}"
       onclick={testHostClick}
     >{testStatus.text}</button>
   </div>
 
-  <div class="config-group">
-    <label for="host-url-{side}">URL</label>
+  <div class="flex flex-col gap-0.5">
+    <label class="text-[0.7em] text-text-dim uppercase tracking-wider" for="host-url-{side}">URL</label>
     <input
+      class="bg-surface border border-edge text-text-primary px-2.5 py-1.5 rounded-md font-mono text-[0.85em] w-full"
       id="host-url-{side}"
       type="text"
       bind:value={session[hostKey]}
@@ -58,9 +59,10 @@
     />
   </div>
 
-  <div class="config-group">
-    <label for="host-auth-{side}">Auth (user:token)</label>
+  <div class="flex flex-col gap-0.5">
+    <label class="text-[0.7em] text-text-dim uppercase tracking-wider" for="host-auth-{side}">Auth (user:token)</label>
     <input
+      class="bg-surface border border-edge text-text-primary px-2.5 py-1.5 rounded-md font-mono text-[0.85em] w-full"
       id="host-auth-{side}"
       type="text"
       bind:value={session[authKey]}
@@ -68,12 +70,12 @@
     />
   </div>
 
-  <div class="config-group">
-    <label for="host-memo-{side}">Memo</label>
+  <div class="flex flex-col gap-0.5">
+    <label class="text-[0.7em] text-text-dim uppercase tracking-wider" for="host-memo-{side}">Memo</label>
     <input
+      class="bg-surface border border-edge text-text-dim px-2.5 py-1.5 rounded-md font-mono text-[0.85em] w-full italic placeholder:italic"
       id="host-memo-{side}"
       type="text"
-      class="host-memo"
       bind:value={session[memoKey]}
       placeholder={side === 'A' ? 'e.g. v3 stable branch' : 'e.g. v4 candidate'}
     />

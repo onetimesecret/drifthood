@@ -43,40 +43,40 @@
 </script>
 
 {#if !result?.has_drift}
-  <div style="color:var(--green);font-size:0.85em;padding:4px 0">
+  <div class="text-green text-[0.85em] py-1">
     No differences detected.{#if ignoredCount > 0}
-      {' '}<span class="ignored-badge" title={ignoredTooltip}>{ignoredCount} fields ignored</span>
+      {' '}<span class="text-[0.7em] text-text-dim font-mono px-1.5 py-0.5 rounded bg-text-dim/10 border border-edge ml-2 cursor-help" title={ignoredTooltip}>{ignoredCount} fields ignored</span>
     {/if}
   </div>
 {:else}
   {#each sections as sec, secIdx}
-    <div class="diff-section">
-      <h4>
+    <div class="mb-3">
+      <h4 class="text-[0.8em] text-text-dim uppercase tracking-wider mb-1.5">
         {sec.label}
         {#if secIdx === 0}
-          {' '}<button class="copy-drift-btn {copyClass}" onclick={(e) => { e.stopPropagation(); copySummary(); }}>{copyLabel}</button>
+          {' '}<button class="text-[0.75em] text-yellow cursor-pointer bg-transparent border border-yellow px-2 py-0.5 rounded ml-2 align-middle font-normal normal-case tracking-normal hover:bg-yellow/15 {copyClass === 'copied' ? 'text-green border-green' : ''}" onclick={(e) => { e.stopPropagation(); copySummary(); }}>{copyLabel}</button>
           {#if ignoredCount > 0}
-            {' '}<span class="ignored-badge" title={ignoredTooltip}>{ignoredCount} fields ignored</span>
+            {' '}<span class="text-[0.7em] text-text-dim font-mono px-1.5 py-0.5 rounded bg-text-dim/10 border border-edge ml-2 cursor-help" title={ignoredTooltip}>{ignoredCount} fields ignored</span>
           {/if}
         {/if}
       </h4>
 
       {#each sec.entries as e}
-        <div class="diff-entry">
+        <div class="font-mono text-[0.8em] px-2 py-1 mb-0.5 rounded bg-bg">
           {#if e.oldVal !== undefined && e.oldType}
-            <span class="diff-path" title={e.path}>{prettifyPath(e.path)}</span><br>
-            <span class="diff-old">&minus; {jsonSummary(e.oldVal)} <span style="opacity:0.6">({e.oldType})</span></span><br>
-            <span class="diff-new">&plus; {jsonSummary(e.newVal)} <span style="opacity:0.6">({e.newType})</span></span>
+            <span class="text-yellow" title={e.path}>{prettifyPath(e.path)}</span><br>
+            <span class="text-red">&minus; {jsonSummary(e.oldVal)} <span class="opacity-60">({e.oldType})</span></span><br>
+            <span class="text-green">&plus; {jsonSummary(e.newVal)} <span class="opacity-60">({e.newType})</span></span>
           {:else if e.oldVal !== undefined}
-            <span class="diff-path" title={e.path}>{prettifyPath(e.path)}</span><br>
-            <span class="diff-old">&minus; {jsonSummary(e.oldVal)}</span><br>
-            <span class="diff-new">&plus; {jsonSummary(e.newVal)}</span>
+            <span class="text-yellow" title={e.path}>{prettifyPath(e.path)}</span><br>
+            <span class="text-red">&minus; {jsonSummary(e.oldVal)}</span><br>
+            <span class="text-green">&plus; {jsonSummary(e.newVal)}</span>
           {:else if e.kind === 'added'}
-            <span class="diff-path" title={e.path}>{prettifyPath(e.path)}</span>
-            {' '}<span class="diff-new">&plus; {jsonSummary(e.raw)}</span>
+            <span class="text-yellow" title={e.path}>{prettifyPath(e.path)}</span>
+            {' '}<span class="text-green">&plus; {jsonSummary(e.raw)}</span>
           {:else if e.kind === 'removed'}
-            <span class="diff-path" title={e.path}>{prettifyPath(e.path)}</span>
-            {' '}<span class="diff-old">&minus; {jsonSummary(e.raw)}</span>
+            <span class="text-yellow" title={e.path}>{prettifyPath(e.path)}</span>
+            {' '}<span class="text-red">&minus; {jsonSummary(e.raw)}</span>
           {:else}
             {jsonSummary(e.raw, 2)}
           {/if}
@@ -86,9 +86,9 @@
   {/each}
 
   {#if sections.length === 0}
-    <button class="copy-drift-btn {copyClass}" onclick={(e) => { e.stopPropagation(); copySummary(); }}>{copyLabel}</button>
+    <button class="text-[0.75em] text-yellow cursor-pointer bg-transparent border border-yellow px-2 py-0.5 rounded ml-2 align-middle font-normal normal-case tracking-normal hover:bg-yellow/15 {copyClass === 'copied' ? 'text-green border-green' : ''}" onclick={(e) => { e.stopPropagation(); copySummary(); }}>{copyLabel}</button>
     {#if ignoredCount > 0}
-      {' '}<span class="ignored-badge" title={ignoredTooltip}>{ignoredCount} fields ignored</span>
+      {' '}<span class="text-[0.7em] text-text-dim font-mono px-1.5 py-0.5 rounded bg-text-dim/10 border border-edge ml-2 cursor-help" title={ignoredTooltip}>{ignoredCount} fields ignored</span>
     {/if}
   {/if}
 {/if}
