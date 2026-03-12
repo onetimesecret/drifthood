@@ -4,6 +4,7 @@
   import { jsonSummary } from '../../lib/diff.js';
   import { escHtml } from '../../lib/format.js';
   import { session } from '../stores/session.svelte.js';
+  import { ui } from '../stores/ui.svelte.js';
 
   let { endpoint } = $props();
 
@@ -21,6 +22,16 @@
   $effect(() => {
     if (r?.has_drift) {
       expanded = true;
+    }
+  });
+
+  // Collapse when filter pills are clicked
+  let lastCollapseGen = 0;
+  $effect(() => {
+    const gen = ui.collapseGen;
+    if (gen > lastCollapseGen) {
+      expanded = false;
+      lastCollapseGen = gen;
     }
   });
 

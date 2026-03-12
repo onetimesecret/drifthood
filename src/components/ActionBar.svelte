@@ -53,6 +53,7 @@
 
   function setFilter(filter) {
     ui.filter = filter;
+    ui.collapseGen++;
   }
 
   function handleClearRuns() {
