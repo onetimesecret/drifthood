@@ -1,0 +1,34 @@
+<svg
+  id="drifthood-logo"
+  width="160"
+  height="100"
+  viewBox="0 0 200 120"
+  fill="none"
+  xmlns="http://www.w3.org/2000/svg"
+>
+                    <path
+    id="branch-1"
+    d="M20 75C40 65 65 85 95 75C125 65 150 90 180 80"
+    stroke="#00AEEF"
+    stroke-width="12"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+                    <path
+    id="branch-2"
+    d="M75 76C85 60 110 45 130 50"
+    stroke="#8CC63F"
+    stroke-width="8"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+                    <path
+    id="branch-3"
+    d="M140 83C150 95 170 100 185 95"
+    stroke="#F7941D"
+    stroke-width="6"
+    stroke-linecap="round"
+  />
+    <circle cx="55" cy="74" r="2" fill="#3e2723" />
+    <circle cx="110" cy="68" r="1.5" fill="#3e2723" />
+</svg>

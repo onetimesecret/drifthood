@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Drift Detector</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="app-layout">
+
+<!-- Sidebar -->
+<div class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <h2>Documents</h2>
+    <button class="sidebar-toggle" onclick="toggleSidebar()" title="Collapse sidebar">&#9664;</button>
+  </div>
+  <button class="sidebar-new-btn" onclick="newDocument()">+ New document</button>
+  <div class="sidebar-list" id="sidebarList"></div>
+</div>
+
+<!-- Expand button (visible when sidebar collapsed) -->
+<button class="sidebar-expand-btn" id="sidebarExpandBtn" onclick="toggleSidebar()" title="Show documents">&#9654; Docs</button>
+
+<!-- Main panel -->
+<div class="main-panel" id="mainPanel">
+
+<div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px">
+  <h1 data-test="title">Drift Detector <span style="font-size:0.5em;font-weight:400;color:var(--text-dim);font-family:var(--mono)">v0.3.0</span></h1>
+  <button class="btn-ghost" style="font-size:0.75em;padding:4px 12px" onclick="saveSession()" data-test="action-save" title="Save session to database">Save</button>
+  <span id="docIndicator" data-test="doc-indicator" style="font-size:0.7em;font-family:var(--mono);color:var(--text-dim);display:none"></span>
+</div>
+
+<div class="session-header">
+  <input type="text" class="session-title" id="sessionTitle" name="sessionTitle" data-test="session-title" placeholder="Untitled session">
+  <textarea class="session-memo" id="sessionMemo" name="sessionMemo" data-test="session-memo" rows="1" placeholder="Notes, context, what you're testing..."></textarea>
+</div>
+
+<!-- Base -->
+<div class="config" data-test="base-config">
+  <div class="host-pair" data-test="host-pair-a">
+    <div class="pair-label">Host A <button class="host-test-btn" onclick="testHost('A')" id="testBtnA" data-test="test-host-a">Test</button></div>
+    <div class="config-group"><label for="hostA">URL</label>
+      <input type="text" id="hostA" name="hostA" data-test="base-host-a" value="" placeholder="http://localhost:10235"></div>
+    <div class="config-group"><label for="authA">Auth (user:token)</label>
+      <input type="text" id="authA" name="authA" data-test="base-auth-a" value="" placeholder="user@example.com:TOKEN"></div>
+    <div class="config-group"><label for="memoA">Memo</label>
+      <input type="text" class="host-memo" id="memoA" name="memoA" data-test="memo-a" value="" placeholder="e.g. v3 stable branch"></div>
+  </div>
+  <div class="host-pair" data-test="host-pair-b">
+    <div class="pair-label">Host B <button class="host-test-btn" onclick="testHost('B')" id="testBtnB" data-test="test-host-b">Test</button></div>
+    <div class="config-group"><label for="hostB">URL</label>
+      <input type="text" id="hostB" name="hostB" data-test="base-host-b" value="" placeholder="http://localhost:10240"></div>
+    <div class="config-group"><label for="authB">Auth (user:token)</label>
+      <input type="text" id="authB" name="authB" data-test="base-auth-b" value="" placeholder="user@example.com:TOKEN"></div>
+    <div class="config-group"><label for="memoB">Memo</label>
+      <input type="text" class="host-memo" id="memoB" name="memoB" data-test="memo-b" value="" placeholder="e.g. v4 candidate"></div>
+  </div>
+</div>
+
+<!-- Ignore paths -->
+<div class="ignore-config" data-test="ignore-config">
+  <div class="ignore-label" onclick="toggleIgnorePanel()">
+    <span class="chevron" id="ignoreChev">&#9654;</span>
+    Ignored Fields
+    <span class="ignore-count" id="ignoreCount" data-test="ignore-count"></span>
+  </div>
+  <div class="ignore-body" id="ignoreBody" data-test="ignore-body">
+    <textarea id="ignorePaths" name="ignorePaths" data-test="ignore-paths" placeholder="body.created&#10;body.updated&#10;body.custid"></textarea>
+    <div class="ignore-hint">One path per line in dot notation (e.g. body.created). These fields will be excluded from comparison. The server has <a href="#" onclick="event.preventDefault();toggleServerDefaults()" style="color:var(--accent);text-decoration:none" id="serverDefaultsLink">built-in defaults</a>; paths here are added on top.</div>
+    <div id="serverDefaults" style="display:none;margin-top:6px;padding:6px 8px;background:var(--bg);border:1px solid var(--border);border-radius:4px;font-family:var(--mono);font-size:0.75em;color:var(--text-dim);white-space:pre-line" data-test="server-defaults"></div>
+  </div>
+</div>
+
+<!-- Endpoints -->
+<div class="section-label" data-test="section-endpoints">Endpoints</div>
+<div class="action-bar" id="actionBar" data-test="action-bar">
+  <button class="btn-secondary" data-test="action-add-endpoint" onclick="addEndpoint()">+ Add Endpoint</button>
+  <div class="action-menu" data-test="examples-menu">
+    <button class="btn-ghost" data-test="action-load-examples" onclick="toggleActionMenu('examplesDropdown')">Examples &#9662;</button>
+    <div class="action-dropdown" id="examplesDropdown" data-test="examples-dropdown">
+      <div class="menu-desc">One of each content type</div>
+      <button data-test="example-mixed" onclick="loadExamples('mixed')">GET query + POST form + POST json</button>
+      <div class="menu-desc">Same-type sets</div>
+      <button data-test="example-query-only" onclick="loadExamples('query-only')">3 GET endpoints (query)</button>
+      <button data-test="example-form-only" onclick="loadExamples('form-only')">3 POST endpoints (form)</button>
+      <button data-test="example-json-only" onclick="loadExamples('json-only')">3 POST endpoints (json)</button>
+    </div>
+  </div>
+  <div class="action-menu" data-test="import-menu">
+    <button class="btn-ghost" onclick="toggleActionMenu('importDropdown')">Import &#9662;</button>
+    <div class="action-dropdown" id="importDropdown">
+      <button data-test="action-import-openapi" onclick="closeAllMenus();openLoaderModal()">From OpenAPI spec...</button>
+      <button data-test="action-import" onclick="closeAllMenus();document.getElementById('importFile').click()">From file (.json / .html)...</button>
+      <div class="menu-hint">You can also drag &amp; drop files onto the page.</div>
+    </div>
+  </div>
+  <input type="file" id="importFile" accept=".json,.html,.htm" style="display:none" onchange="importSession(this)">
+  <div class="action-menu" data-test="export-menu">
+    <button class="btn-ghost" onclick="toggleActionMenu('exportDropdown')">Export &#9662;</button>
+    <div class="action-dropdown" id="exportDropdown">
+      <button data-test="action-export" onclick="closeAllMenus();exportCurrentAsJson()">Current state as JSON</button>
+      <button data-test="action-export-html" onclick="closeAllMenus();exportAsHtml()">Snapshot as HTML</button>
+    </div>
+  </div>
+  <button class="btn-ghost" data-test="action-diff-schemas" onclick="openSchemaDiffModal()">Diff Schemas</button>
+  <button class="btn-primary" id="runBtn" data-test="action-run-all" onclick="runAll()">Run All</button>
+  <button class="btn-ghost" data-test="action-clear-runs" onclick="clearRuns()" title="Reset all endpoint results to idle">Clear Runs</button>
+  <div class="filter-pills" id="filterPills" data-test="filter-pills" style="display:none">
+    <button class="active" data-test="filter-all" onclick="filterCards('all')">All</button>
+    <button data-test="filter-drift" onclick="filterCards('drift')">Drifts</button>
+    <button data-test="filter-ok" onclick="filterCards('ok')">OK</button>
+  </div>
+  <span class="tally" id="tally" data-test="tally"></span>
+</div>
+
+<div class="loader-breadcrumb" id="loaderBreadcrumb" data-test="loader-breadcrumb">
+  Loaded from <span class="breadcrumb-source" id="breadcrumbSource" data-test="breadcrumb-source"></span>
+  <button class="breadcrumb-dismiss" data-test="breadcrumb-dismiss" onclick="dismissBreadcrumb()" title="Dismiss">&times;</button>
+</div>
+
+<div class="endpoints-area" id="endpointsArea" data-test="endpoints-area"></div>
+
+<button class="back-to-top" id="backToTop" data-test="back-to-top" onclick="window.scrollTo({top:0,behavior:'smooth'})" title="Back to top">&#9650;</button>
+
+<!-- OpenAPI Modal -->
+<div class="modal-overlay" id="loaderModal" data-test="modal-overlay" onclick="if(event.target===this)closeLoaderModal()">
+  <div class="modal" data-test="modal-openapi">
+    <div class="modal-header">
+      <h3>Import from OpenAPI Spec</h3>
+      <button class="modal-close" data-test="modal-close" onclick="closeLoaderModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <div class="openapi-input-row">
+        <input type="text" id="openapiUrl" name="openapiUrl" data-test="openapi-url" placeholder="https://example.com/openapi.json">
+        <button class="btn-secondary" data-test="openapi-fetch" onclick="loadSpecFromUrl()">Fetch</button>
+        <span class="openapi-or">or</span>
+        <input type="file" id="openapiFile" data-test="openapi-file" accept=".json,.yaml,.yml" onchange="loadSpecFromFile(this)">
+      </div>
+      <div class="openapi-info" id="openapiInfo" data-test="openapi-info" style="display:none"></div>
+      <div id="openapiSelectBar" style="display:none;margin-bottom:8px;gap:8px">
+        <button class="btn-secondary" data-test="openapi-select-all" onclick="openapiSelectAll(true)" style="padding:4px 10px;font-size:0.8em">Select All</button>
+        <button class="btn-secondary" data-test="openapi-deselect-all" onclick="openapiSelectAll(false)" style="padding:4px 10px;font-size:0.8em">Deselect All</button>
+      </div>
+      <div class="openapi-groups" id="openapiGroups" data-test="openapi-groups"></div>
+    </div>
+    <div class="modal-footer" id="modalFooter" data-test="modal-footer">
+      <span style="flex:1"></span>
+      <button class="btn-primary" data-test="openapi-load-selected" onclick="loadSelectedToEndpoints()">Load Selected</button>
+    </div>
+  </div>
+</div>
+
+<!-- Schema Diff Modal -->
+<div class="modal-overlay" id="schemaDiffModal" data-test="modal-schema-diff-overlay" onclick="if(event.target===this)closeSchemaDiffModal()">
+  <div class="modal" style="max-width:900px" data-test="modal-schema-diff">
+    <div class="modal-header">
+      <h3>Diff Request Schemas</h3>
+      <button class="modal-close" data-test="schema-diff-close" onclick="closeSchemaDiffModal()">&times;</button>
+    </div>
+    <div class="modal-body">
+      <p style="font-size:0.8em;color:var(--text-dim);margin-bottom:12px">Compare request body fields between two OpenAPI specs. Detects added/removed fields, type changes, and possible renames.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+        <div>
+          <div style="font-size:0.75em;color:var(--text-dim);margin-bottom:4px">Spec A (baseline)</div>
+          <div class="openapi-input-row" style="margin-bottom:0">
+            <input type="text" id="schemaDiffUrlA" name="schemaDiffUrlA" data-test="sd-url-a" placeholder="URL to spec A">
+            <span class="openapi-or">or</span>
+            <input type="file" id="schemaDiffFileA" data-test="sd-file-a" accept=".json,.yaml,.yml" style="font-size:0.8em">
+          </div>
+        </div>
+        <div>
+          <div style="font-size:0.75em;color:var(--text-dim);margin-bottom:4px">Spec B (new version)</div>
+          <div class="openapi-input-row" style="margin-bottom:0">
+            <input type="text" id="schemaDiffUrlB" name="schemaDiffUrlB" data-test="sd-url-b" placeholder="URL to spec B">
+            <span class="openapi-or">or</span>
+            <input type="file" id="schemaDiffFileB" data-test="sd-file-b" accept=".json,.yaml,.yml" style="font-size:0.8em">
+          </div>
+        </div>
+      </div>
+      <button class="btn-primary" data-test="sd-run" onclick="runSchemaDiff()">Compare</button>
+      <div id="schemaDiffStatus" data-test="sd-status" style="font-size:0.8em;color:var(--text-dim);margin-top:8px"></div>
+      <div id="schemaDiffResults" data-test="sd-results" class="schema-diff-results"></div>
+    </div>
+  </div>
+</div>
+
+<!-- Drop overlay -->
+<div class="drop-overlay" id="dropOverlay">
+  <div class="drop-overlay-inner">
+    <div class="drop-icon">&#8615;</div>
+    <div class="drop-label">Drop file to import</div>
+    <div class="drop-hint">.json (session or OpenAPI) &middot; .html (snapshot)</div>
+  </div>
+</div>
+<div class="drop-toast" id="dropToast"></div>
+
+<script src="/static/app.js"></script>
+</div><!-- /main-panel -->
+</div><!-- /app-layout -->
+</body>
+</html>
