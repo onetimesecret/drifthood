@@ -443,7 +443,7 @@
 </script>
 
 <div class="app-layout">
-  <Sidebar />
+  <Sidebar onBreadcrumb={(text) => breadcrumbText = text} />
 
   <div class="main-panel">
     <!-- Header -->

@@ -6,7 +6,9 @@
   import { session, resetSession } from '../stores/session.svelte.js';
   import { ui, resetUi } from '../stores/ui.svelte.js';
   import { restore } from '../stores/snapshot.js';
+  import { stateFingerprint } from '../../lib/state.js';
 
+  let { onBreadcrumb } = $props();
   let sessionsByDoc = $state({});
 
   // Fetch documents on mount and whenever refreshVersion changes (e.g. after save)
@@ -77,6 +79,8 @@
       restore(state);
       documents.currentDocumentId = docId;
       documents.currentSessionNumber = sessionNumber;
+      documents.lastSavedStateHash = stateFingerprint(state);
+      onBreadcrumb?.(`doc #${docId} session #${sessionNumber}`);
     } catch {
       // Silent failure
     }

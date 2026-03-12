@@ -120,6 +120,7 @@ def init_db():
             state_json      TEXT NOT NULL,
             state_hash      TEXT,
             created_at      TEXT NOT NULL,
+            updated_at      TEXT,
             deleted_at      TEXT,
             UNIQUE(document_id, session_number)
         )
@@ -154,6 +155,8 @@ def init_db():
         )
     if "state_hash" not in columns:
         migrations.append("ALTER TABLE sessions ADD COLUMN state_hash TEXT")
+    if "updated_at" not in columns:
+        migrations.append("ALTER TABLE sessions ADD COLUMN updated_at TEXT")
     if "deleted_at" not in columns:
         migrations.append("ALTER TABLE sessions ADD COLUMN deleted_at TEXT")
     for sql in migrations:
@@ -305,7 +308,7 @@ def create_session(
 
     cur2 = conn.execute(
         """SELECT id, document_id, session_number, session_type,
-                  endpoint_count, drift_count, ok_count, state_hash, created_at
+                  endpoint_count, drift_count, ok_count, state_hash, created_at, updated_at
            FROM sessions WHERE document_id = ? AND session_number = ?""",
         (document_id, next_num),
     )
@@ -318,7 +321,7 @@ def list_sessions(document_id: int) -> list[dict]:
     conn = _connect()
     cur = conn.execute(
         """SELECT id, document_id, session_number, session_type,
-                  endpoint_count, drift_count, ok_count, state_hash, created_at
+                  endpoint_count, drift_count, ok_count, state_hash, created_at, updated_at
            FROM sessions WHERE document_id = ? AND deleted_at IS NULL
            ORDER BY session_number""",
         (document_id,),
@@ -379,7 +382,7 @@ def update_session(
     cur = conn.execute(
         """UPDATE sessions
            SET state_json = ?, state_hash = ?, endpoint_count = ?,
-               drift_count = ?, ok_count = ?, created_at = ?
+               drift_count = ?, ok_count = ?, updated_at = ?
            WHERE document_id = ? AND session_number = ? AND deleted_at IS NULL""",
         (
             state_json,
@@ -392,19 +395,19 @@ def update_session(
             session_number,
         ),
     )
+    if cur.rowcount == 0:
+        conn.close()
+        return None
+
     conn.execute(
         "UPDATE documents SET updated_at = ? WHERE id = ?",
         (now, document_id),
     )
     conn.commit()
 
-    if cur.rowcount == 0:
-        conn.close()
-        return None
-
     cur2 = conn.execute(
         """SELECT id, document_id, session_number, session_type,
-                  endpoint_count, drift_count, ok_count, state_hash, created_at
+                  endpoint_count, drift_count, ok_count, state_hash, created_at, updated_at
            FROM sessions WHERE document_id = ? AND session_number = ?""",
         (document_id, session_number),
     )
