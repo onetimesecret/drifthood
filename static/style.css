@@ -267,6 +267,25 @@ button { padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border);
 .field-indent-1 { padding-left: 16px; }
 .field-indent-2 { padding-left: 32px; }
 
+/* Key/value pair rows (form/query params) */
+.kv-pairs { padding: 6px 12px 10px; border-top: 1px solid var(--border); }
+.kv-pairs .kv-header { font-size: 0.65em; text-transform: uppercase; letter-spacing: 0.08em;
+                        color: var(--text-dim); margin: 2px 0 4px; }
+.kv-row { display: flex; align-items: center; gap: 6px; margin-bottom: 4px; font-size: 0.8em; font-family: var(--mono); }
+.kv-row input { background: var(--bg); border: 1px solid var(--border); color: var(--text);
+                padding: 3px 6px; border-radius: 4px; font-family: var(--mono); font-size: 0.9em;
+                min-width: 80px; }
+.kv-row .kv-key { flex: 1; max-width: 200px; }
+.kv-row .kv-sep { color: var(--text-dim); font-size: 0.85em; flex-shrink: 0; user-select: none; }
+.kv-row .kv-val { flex: 2; }
+.kv-row .kv-remove { background: none; border: none; color: var(--text-dim); cursor: pointer;
+                     font-size: 1.1em; padding: 2px 6px; border-radius: 4px; flex-shrink: 0; }
+.kv-row .kv-remove:hover { color: var(--red); background: rgba(248,81,73,0.1); }
+.kv-add-btn { font-size: 0.75em; font-family: var(--mono); padding: 2px 10px; border-radius: 4px;
+              cursor: pointer; border: 1px dashed var(--border); background: none; color: var(--text-dim);
+              margin-top: 2px; }
+.kv-add-btn:hover { border-color: var(--accent); color: var(--accent); }
+
 /* Schema diff modal */
 .schema-diff-results { margin-top: 12px; }
 .sd-endpoint { margin-bottom: 10px; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }

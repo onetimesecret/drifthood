@@ -174,6 +174,12 @@ function addEndpoint(method='GET', label='', path='', body='', contentType='quer
   const fromSpec = hasAnyFields || label.includes('_');
   const shortLabel = stripOpIdPrefix(label);
 
+  // Determine whether kv-pairs UI should be shown initially
+  const useKvPairs = ct !== CT.json && !(showFieldsByDefault && hasBodyFields);
+  // body-input: hidden if kv-pairs shown OR if schema fields mode hides it
+  const hideBodyInput = useKvPairs || (showFieldsByDefault && hasBodyFields);
+  const bodyInputStyle = hideBodyInput ? ' style="display:none"' : (ct.cls === 'json' ? ' style="border-color:var(--accent)"' : '');
+
   card.innerHTML = `
     <div class="ep-config" data-test="ep-config">
       <select data-field="method" data-test="ep-method" name="method-${id}">
@@ -183,7 +189,7 @@ function addEndpoint(method='GET', label='', path='', body='', contentType='quer
         <option ${method==='DELETE'?'selected':''}>DELETE</option>
       </select>
       <input type="text" class="path-input" data-field="path" data-test="ep-path" name="path-${id}" placeholder="/api/v1/status" value="${esc(path)}">
-      <input type="text" class="body-input" data-field="body" data-test="ep-body" name="body-${id}" placeholder="${ct.placeholder}" value="${esc(body)}"${showFieldsByDefault && hasBodyFields?' style="display:none"':(ct.cls==='json'?' style="border-color:var(--accent)"':'')}>
+      <input type="text" class="body-input" data-field="body" data-test="ep-body" name="body-${id}" placeholder="${ct.placeholder}" value="${esc(body)}"${bodyInputStyle}>
       <span class="ct-toggle ${ct.cls}" data-test="ep-ct-toggle" onclick="toggleCt(this)" title="query / form / json">${ct.label}</span>
       ${hasAnyFields ? `<span class="ep-fields-toggle${showFieldsByDefault?' active':''}" data-test="ep-fields-toggle" onclick="toggleFieldsMode(${id})" title="Toggle per-field inputs">FIELDS</span>` : ''}
       ${fromSpec
@@ -193,11 +199,13 @@ function addEndpoint(method='GET', label='', path='', body='', contentType='quer
       <button class="ep-run-btn" data-test="ep-run" onclick="runOne(${id})" title="Run this endpoint">run</button>
       <button class="remove-btn" data-test="ep-remove" onclick="removeEndpoint(${id})" title="Remove">&times;</button>
     </div>
+    <div class="kv-pairs" data-test="ep-kv" id="ep-kv-${id}"${useKvPairs ? '' : ' style="display:none"'}></div>
     <div class="ep-fields" data-test="ep-fields" id="ep-fields-${id}"${showFieldsByDefault?'':' style="display:none"'}></div>
     <div class="ep-result" data-test="ep-result" id="ep-result-${id}" style="display:none"></div>
   `;
   area.appendChild(card);
   if (hasAnyFields) renderFieldInputs(id);
+  if (useKvPairs) renderKvPairs(id);
   updateTally();
 }
 
@@ -248,28 +256,43 @@ function renderFieldInputs(id) {
 function toggleFieldsMode(id) {
   const card = document.getElementById(`ep-${id}`);
   const fieldsDiv = document.getElementById(`ep-fields-${id}`);
+  const kvContainer = document.getElementById(`ep-kv-${id}`);
   const toggle = card.querySelector('.ep-fields-toggle');
   const bodyInput = card.querySelector('[data-field="body"]');
   const isOn = card.dataset.fieldsMode === 'on';
   const hasBodyFields = cardFields[id]?.fields?.length > 0;
+  const ct = ctInfo(card.dataset.contentType);
 
   if (isOn) {
     // Switching OFF fields mode: assemble body from fields, hide fields
     card.dataset.fieldsMode = 'off';
     toggle.classList.remove('active');
     fieldsDiv.style.display = 'none';
-    bodyInput.style.display = '';
     // Assemble body from current field values (only overwrites if body fields exist)
     if (hasBodyFields) {
       bodyInput.value = assembleBodyFromFields(id, card.dataset.contentType);
     }
+    // Show kv-pairs for form/query, or body-input for json
+    if (ct !== CT.json && kvContainer) {
+      kvContainer.style.display = '';
+      bodyInput.style.display = 'none';
+      renderKvPairs(id);
+    } else {
+      bodyInput.style.display = '';
+      if (kvContainer) kvContainer.style.display = 'none';
+    }
   } else {
-    // Switching ON fields mode: show fields, hide body only if body fields exist
+    // Switching ON fields mode: show fields, hide body and kv-pairs if body fields exist
     card.dataset.fieldsMode = 'on';
     toggle.classList.add('active');
     fieldsDiv.style.display = 'block';
     if (hasBodyFields) {
       bodyInput.style.display = 'none';
+      // Sync kv values back to body before hiding
+      if (kvContainer && kvContainer.style.display !== 'none') {
+        syncKvToBody(id);
+      }
+      if (kvContainer) kvContainer.style.display = 'none';
     }
   }
 }
@@ -323,6 +346,79 @@ function flattenObj(obj, prefix = '') {
   return result;
 }
 
+// ── Key/Value pair rows for form/query params ──
+function parseKvString(str) {
+  if (!str || !str.trim()) return [];
+  return str.split('&').map(pair => {
+    const eq = pair.indexOf('=');
+    if (eq === -1) return { key: pair, val: '' };
+    return { key: decodeURIComponent(pair.slice(0, eq)), val: decodeURIComponent(pair.slice(eq + 1)) };
+  }).filter(p => p.key !== '');
+}
+function renderKvPairs(id) {
+  const card = document.getElementById(`ep-${id}`);
+  const container = document.getElementById(`ep-kv-${id}`);
+  if (!container) return;
+  const bodyInput = card.querySelector('[data-field="body"]');
+  const pairs = parseKvString(bodyInput.value);
+  const ctKey = ctInfo(card.dataset.contentType) === CT.query ? 'query' : 'form';
+  const headerLabel = ctKey === 'query' ? 'Query Parameters' : 'Form Parameters';
+  let html = `<div class="kv-header">${headerLabel}</div>`;
+  if (pairs.length === 0) {
+    html += kvRowHtml(id, '', '');
+  } else {
+    for (const p of pairs) html += kvRowHtml(id, p.key, p.val);
+  }
+  html += `<button class="kv-add-btn" onclick="addKvRow(${id})">+ Add</button>`;
+  container.innerHTML = html;
+}
+function kvRowHtml(id, key, val) {
+  return `<div class="kv-row"><input type="text" class="kv-key" placeholder="key" value="${esc(key)}"><span class="kv-sep">=</span><input type="text" class="kv-val" placeholder="value" value="${esc(val)}"><button class="kv-remove" onclick="removeKvRow(this, ${id})" title="Remove">&times;</button></div>`;
+}
+function addKvRow(id) {
+  const container = document.getElementById(`ep-kv-${id}`);
+  if (!container) return;
+  const addBtn = container.querySelector('.kv-add-btn');
+  const row = document.createElement('div');
+  row.className = 'kv-row';
+  row.innerHTML = `<input type="text" class="kv-key" placeholder="key" value=""><span class="kv-sep">=</span><input type="text" class="kv-val" placeholder="value" value=""><button class="kv-remove" onclick="removeKvRow(this, ${id})" title="Remove">&times;</button>`;
+  container.insertBefore(row, addBtn);
+}
+function removeKvRow(btn, id) {
+  const container = document.getElementById(`ep-kv-${id}`);
+  if (!container) return;
+  btn.closest('.kv-row').remove();
+  if (!container.querySelector('.kv-row')) {
+    const addBtn = container.querySelector('.kv-add-btn');
+    const r = document.createElement('div'); r.className = 'kv-row';
+    r.innerHTML = `<input type="text" class="kv-key" placeholder="key" value=""><span class="kv-sep">=</span><input type="text" class="kv-val" placeholder="value" value=""><button class="kv-remove" onclick="removeKvRow(this, ${id})" title="Remove">&times;</button>`;
+    container.insertBefore(r, addBtn);
+  }
+}
+function assembleKvPairs(id) {
+  const container = document.getElementById(`ep-kv-${id}`);
+  if (!container) return '';
+  const pairs = [];
+  container.querySelectorAll('.kv-row').forEach(row => {
+    const key = row.querySelector('.kv-key').value.trim();
+    const val = row.querySelector('.kv-val').value;
+    if (key) pairs.push(encodeURIComponent(key) + '=' + encodeURIComponent(val));
+  });
+  return pairs.join('&');
+}
+function syncKvToBody(id) {
+  const card = document.getElementById(`ep-${id}`);
+  if (!card) return;
+  const bodyInput = card.querySelector('[data-field="body"]');
+  if (bodyInput) bodyInput.value = assembleKvPairs(id);
+}
+function shouldShowKvPairs(card, id) {
+  const ct = ctInfo(card.dataset.contentType);
+  if (ct === CT.json) return false;
+  if (card.dataset.fieldsMode === 'on' && cardFields[id]?.fields?.length > 0) return false;
+  return true;
+}
+
 function removeEndpoint(id) {
   const el = document.getElementById(`ep-${id}`);
   if (el) el.remove();
@@ -331,15 +427,43 @@ function removeEndpoint(id) {
 
 function toggleCt(el) {
   const card = el.closest('.ep-card');
+  const id = parseInt(card.id.replace('ep-', ''));
   const bodyInput = card.querySelector('[data-field="body"]');
+  const kvContainer = document.getElementById(`ep-kv-${id}`);
   const cur = ctInfo(card.dataset.contentType);
   const idx = CT_CYCLE.indexOf(cur === CT.query ? 'query' : cur === CT.form ? 'form' : 'json');
   const next = CT[CT_CYCLE[(idx + 1) % CT_CYCLE.length]];
+
+  // When leaving kv-pairs mode (form/query -> json), sync kv values back to body input
+  const wasKv = cur !== CT.json && kvContainer && kvContainer.style.display !== 'none';
+  if (wasKv) {
+    syncKvToBody(id);
+  }
+
   card.dataset.contentType = next.value;
   el.textContent = next.label;
   el.className = 'ct-toggle ' + next.cls;
   bodyInput.placeholder = next.placeholder;
-  bodyInput.style.borderColor = next.cls === 'json' ? 'var(--accent)' : '';
+
+  // Determine visibility: kv-pairs vs body-input
+  const useKv = shouldShowKvPairs(card, id);
+  if (kvContainer) {
+    if (useKv) {
+      kvContainer.style.display = '';
+      bodyInput.style.display = 'none';
+      bodyInput.style.borderColor = '';
+      renderKvPairs(id);
+    } else {
+      kvContainer.style.display = 'none';
+      // Only show body-input if not hidden by schema fields mode
+      const hiddenByFields = card.dataset.fieldsMode === 'on' && cardFields[id]?.fields?.length > 0;
+      bodyInput.style.display = hiddenByFields ? 'none' : '';
+      bodyInput.style.borderColor = next.cls === 'json' ? 'var(--accent)' : '';
+    }
+  } else {
+    bodyInput.style.display = '';
+    bodyInput.style.borderColor = next.cls === 'json' ? 'var(--accent)' : '';
+  }
 }
 
 function esc(s) { return s.replace(/"/g, '&quot;'); }
@@ -399,6 +523,11 @@ function readEndpoint(card) {
   // where the user enters form/json body directly in the textarea).
   if (card.dataset.fieldsMode === 'on' && cardFields[id]?.fields?.length > 0) {
     body = assembleBodyFromFields(id, card.dataset.contentType) || null;
+  }
+  // If kv-pairs are visible, assemble body from the key/value rows
+  const kvContainer = document.getElementById(`ep-kv-${id}`);
+  if (kvContainer && kvContainer.style.display !== 'none') {
+    body = assembleKvPairs(id) || null;
   }
 
   // Substitute path template variables from field inputs
@@ -527,6 +656,10 @@ async function runOne(id) {
       }),
     });
     const r = await resp.json();
+    // Attach request body/content_type from the endpoint config so the result
+    // renderer can display what was actually sent (the backend doesn't echo these).
+    r.request_body = ep.body;
+    r.request_content_type = ep.content_type;
     card.dataset.state = r.has_drift ? 'done-drift' : 'done-ok';
     card.className = `ep-card state-${r.has_drift ? 'drift' : 'ok'}`;
     renderResultInCard(id, r);
@@ -729,6 +862,9 @@ function renderResultInCard(id, r) {
   const metaSize = `${clA}/${clB} bytes`;
   const metaTiming = `${msA ?? '?'}/${msB ?? '?'}ms`;
 
+  // Pre-compute request body display (null when no body was sent)
+  const reqBodyFmt = formatRequestBody(r.request_body, r.request_content_type);
+
   resultDiv.style.display = 'block';
   resultDiv.innerHTML = `
     <div class="ep-result-header" data-test="result-header" onclick="toggleResultBody('rb-${id}','rc-${id}')">
@@ -753,6 +889,7 @@ function renderResultInCard(id, r) {
       </div>
       <div class="toggles-row">
         <button class="raw-toggle" data-test="result-raw-toggle" onclick="toggleRaw('raw-${id}')">Show raw diff JSON</button>
+        ${reqBodyFmt ? `<button class="raw-toggle" onclick="toggleRaw('req-body-${id}')">Show request body</button>` : ''}
         <button class="raw-toggle" onclick="toggleRaw('req-headers-${id}')">Show request headers</button>
         <button class="raw-toggle" onclick="toggleRaw('resp-headers-${id}')">Show response headers</button>
         <div class="copy-menu">
@@ -764,6 +901,7 @@ function renderResultInCard(id, r) {
         </div>
       </div>
       <div class="has-copy raw-json" data-test="result-raw-json" id="raw-${id}"><button class="inline-copy" onclick="inlineCopy(this,${id},'raw_diff')">copy</button>${escHtml(JSON.stringify(r.diff, null, 2))}</div>
+      ${reqBodyFmt ? `<div class="has-copy raw-headers" id="req-body-${id}" data-test="result-req-body"><button class="inline-copy" onclick="inlineCopy(this,${id},'req_body')">copy</button><div class="side-label">Request Body <span style="font-size:0.85em;color:var(--text-dim);text-transform:none;letter-spacing:0;">(${escHtml(r.request_content_type || 'query')})</span></div><div class="side-json">${reqBodyFmt.html}</div></div>` : ''}
       <div class="raw-headers" id="req-headers-${id}"><div class="side-by-side"><div class="has-copy"><button class="inline-copy" onclick="inlineCopy(this,${id},'req_a')">copy</button><div class="side-label">Request to A</div>${escHtml(formatReqHeaders(r, 'a'))}</div><div class="has-copy"><button class="inline-copy" onclick="inlineCopy(this,${id},'req_b')">copy</button><div class="side-label">Request to B</div>${escHtml(formatReqHeaders(r, 'b'))}</div></div></div>
       <div class="raw-headers" id="resp-headers-${id}"><div class="side-by-side"><div class="has-copy"><button class="inline-copy" onclick="inlineCopy(this,${id},'resp_headers_a')">copy</button><div class="side-label">Response A</div>${escHtml(JSON.stringify(r.response_a.headers, null, 2))}</div><div class="has-copy"><button class="inline-copy" onclick="inlineCopy(this,${id},'resp_headers_b')">copy</button><div class="side-label">Response B</div>${escHtml(JSON.stringify(r.response_b.headers, null, 2))}</div></div></div>
     </div>
@@ -787,6 +925,53 @@ function formatReqHeaders(r, side) {
     }
   }
   return lines.join('\n');
+}
+
+// Format request body for display based on content type.
+// Returns {html, text} where html is for rendering and text is for copy.
+function formatRequestBody(body, contentType) {
+  if (body == null || body === '') return null;
+
+  const ct = contentType || 'query';
+
+  // JSON content type
+  if (ct === 'application/json') {
+    try {
+      const parsed = JSON.parse(body);
+      const pretty = JSON.stringify(parsed, null, 2);
+      return { html: escHtml(pretty), text: pretty, type: 'json' };
+    } catch (_) {
+      // Not valid JSON, show raw
+      return { html: escHtml(body), text: body, type: 'raw' };
+    }
+  }
+
+  // Form-encoded or query params: parse into key/value table
+  if (ct === 'application/x-www-form-urlencoded' || ct === 'query') {
+    const label = ct === 'query' ? 'Query' : 'Form';
+    try {
+      const params = new URLSearchParams(body);
+      const entries = [...params.entries()];
+      if (entries.length === 0) return { html: escHtml(body), text: body, type: 'raw' };
+
+      let html = `<table style="border-collapse:collapse;width:100%;font-family:var(--mono);font-size:0.85em;">`;
+      html += `<tr style="border-bottom:1px solid var(--border);color:var(--text-dim);"><td style="padding:3px 8px;font-size:0.85em;text-transform:uppercase;letter-spacing:0.06em;">${label} Key</td><td style="padding:3px 8px;font-size:0.85em;text-transform:uppercase;letter-spacing:0.06em;">Value</td></tr>`;
+      for (const [k, v] of entries) {
+        html += `<tr style="border-bottom:1px solid var(--border);"><td style="padding:3px 8px;color:var(--accent);">${escHtml(k)}</td><td style="padding:3px 8px;color:var(--text);">${escHtml(v)}</td></tr>`;
+      }
+      html += `</table>`;
+      // Also include raw form for reference
+      html += `<div style="margin-top:6px;font-size:0.8em;color:var(--text-dim);">Raw: <code>${escHtml(body)}</code></div>`;
+
+      const text = entries.map(([k, v]) => `${k}=${v}`).join('\n');
+      return { html, text: body, type: label.toLowerCase() };
+    } catch (_) {
+      return { html: escHtml(body), text: body, type: 'raw' };
+    }
+  }
+
+  // Fallback: raw display
+  return { html: escHtml(body), text: body, type: 'raw' };
 }
 
 function toggleResultBody(bodyId, chevId) {
@@ -846,6 +1031,11 @@ function inlineCopy(btn, id, which) {
     case 'req_b':           text = formatReqHeaders(r, 'b'); break;
     case 'resp_headers_a':  text = JSON.stringify(r.response_a.headers, null, 2); break;
     case 'resp_headers_b':  text = JSON.stringify(r.response_b.headers, null, 2); break;
+    case 'req_body': {
+      const fmt = formatRequestBody(r.request_body, r.request_content_type);
+      text = fmt ? fmt.text : '(no body)';
+      break;
+    }
     default: return;
   }
   clipCopy(text, btn);
@@ -1276,6 +1466,9 @@ function collectState() {
   const cards = [...document.querySelectorAll('.ep-card')];
   const endpoints = cards.map(card => {
     const id = parseInt(card.id.replace('ep-', ''));
+    // Sync kv-pairs to body input before reading
+    const kvC = document.getElementById(`ep-kv-${id}`);
+    if (kvC && kvC.style.display !== 'none') syncKvToBody(id);
     const ep = {
       method: card.querySelector('[data-field="method"]').value,
       label: card.querySelector('[data-field="label"]').value,
