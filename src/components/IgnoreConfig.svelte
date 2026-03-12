@@ -55,7 +55,7 @@
     ></textarea>
     <div class="ignore-hint">
       One path per line in dot notation (e.g. body.created). These fields will be excluded from comparison.
-      The server has <a href="#" onclick={toggleDefaults} style="color:var(--accent);text-decoration:none">built-in defaults</a>;
+      The server has <button type="button" onclick={toggleDefaults} style="color:var(--accent);background:none;border:none;padding:0;font:inherit;cursor:pointer;text-decoration:none">built-in defaults</button>;
       paths here are added on top.
     </div>
 

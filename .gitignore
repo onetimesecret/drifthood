@@ -7,3 +7,6 @@ venv*/
 .well-known/
 node_modules/
 dist/
+
+# Override root .gitignore which ignores lib/ (Python convention)
+!lib/
