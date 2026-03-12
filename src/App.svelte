@@ -123,14 +123,19 @@
   async function loadSavedSession(docId, sessionNumber) {
     try {
       const data = await apiGetSession(docId, sessionNumber);
-      if (data.error) {
-        showDropToast('Session not found: ' + data.error, true);
+      if (data.error || !data.session) {
+        showDropToast('Session not found: ' + (data.error || 'no session data'), true);
+        return;
+      }
+      const state = data.session.state;
+      if (!state) {
+        showDropToast('Session has no state data', true);
         return;
       }
       documents.currentDocumentId = docId;
       documents.currentSessionNumber = sessionNumber;
-      restore(data.state);
-      documents.lastSavedStateHash = stateFingerprint(data.state);
+      restore(state);
+      documents.lastSavedStateHash = stateFingerprint(state);
       breadcrumbText = `doc #${docId} session #${sessionNumber}`;
       showDropToast(`Loaded session #${sessionNumber}`, false);
       startAutosave();
