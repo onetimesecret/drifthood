@@ -160,7 +160,7 @@
       <div class="openapi-groups">
         {#each parsedSpec.groups as g, gi}
           <div class="openapi-group">
-            <div class="openapi-group-header" onclick={() => toggleGroup(gi)}>
+            <div class="openapi-group-header" role="button" tabindex="0" onclick={() => toggleGroup(gi)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleGroup(gi); } }}>
               <input
                 type="checkbox"
                 checked={groupChecked[gi]}

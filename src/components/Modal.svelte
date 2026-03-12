@@ -13,8 +13,8 @@
   });
 </script>
 
-<div class="modal-overlay" class:open={open} onclick={(e) => e.target === e.currentTarget && onclose()}>
-  <div class="modal" style="max-width:{maxWidth}">
+<div class="modal-overlay" class:open={open} onclick={(e) => e.target === e.currentTarget && onclose()} onkeydown={(e) => { if (e.key === 'Escape') onclose(); }}>
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:{maxWidth}">
     {@render children()}
   </div>
 </div>

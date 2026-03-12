@@ -131,7 +131,7 @@
             {@const key = endpointKey(r)}
             {@const isOpen = expandedEndpoints.has(key)}
             <div class="sd-endpoint">
-              <div class="sd-endpoint-header" onclick={() => toggleEndpoint(r)}>
+              <div class="sd-endpoint-header" role="button" tabindex="0" onclick={() => toggleEndpoint(r)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleEndpoint(r); } }}>
                 <span class="chevron" class:open={isOpen}>&#9654;</span>
                 <span class="sd-badge {r.status}">{r.status.replace('_', ' ')}</span>
                 <span class="op-method {r.method.toLowerCase()}" style="font-weight:600;width:52px;text-align:right">{r.method}</span>
