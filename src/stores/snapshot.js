@@ -36,8 +36,7 @@ export function snapshot() {
       state: ep.state,
       cardFields: ep.cardFields,
       fieldValues: ep.fieldValues,
-      // Note: result data is NOT serialized (old resultHtml was fragile).
-      // Users re-run comparisons after restore.
+      result: ep.result ?? null,
     })),
     filter: ui.filter,
     ignoreOpen: ui.ignoreOpen,
@@ -74,7 +73,7 @@ export function restore(snap) {
 
   // Restore endpoints
   for (const ep of (snap.endpoints || [])) {
-    addEndpoint({
+    const id = addEndpoint({
       method: ep.method,
       label: ep.label,
       path: ep.path,
@@ -85,8 +84,14 @@ export function restore(snap) {
       cardFields: ep.cardFields || null,
       fieldValues: ep.fieldValues || null,
     });
-    // Old sessions with resultHtml: result stays null, state shows as idle.
-    // This is intentional — no migration code.
+    // Restore run state and result if present in the snapshot
+    if (ep.state && ep.state !== 'idle') {
+      const restored = endpoints.find(e => e.id === id);
+      if (restored) {
+        restored.state = ep.state;
+        restored.result = ep.result || null;
+      }
+    }
   }
 
   // Restore UI state
