@@ -1,6 +1,6 @@
 <script>
   import { parseDiff, jsonSummary } from '../../lib/diff.js';
-  import { prettifyPath, escHtml } from '../../lib/format.js';
+  import { prettifyPath } from '../../lib/format.js';
   import { buildDriftSummary } from '../../lib/export.js';
 
   let { result, endpointId } = $props();
@@ -35,7 +35,7 @@
   {#each sections as sec, secIdx}
     <div class="diff-section">
       <h4>
-        {escHtml(sec.label)}
+        {sec.label}
         {#if secIdx === 0}
           {' '}<button class="copy-drift-btn {copyClass}" onclick={(e) => { e.stopPropagation(); copySummary(); }}>{copyLabel}</button>
           {#if ignoredCount > 0}
@@ -48,20 +48,20 @@
         <div class="diff-entry">
           {#if e.oldVal !== undefined && e.oldType}
             <span class="diff-path" title={e.path}>{prettifyPath(e.path)}</span><br>
-            <span class="diff-old">&minus; {escHtml(jsonSummary(e.oldVal))} <span style="opacity:0.6">({e.oldType})</span></span><br>
-            <span class="diff-new">&plus; {escHtml(jsonSummary(e.newVal))} <span style="opacity:0.6">({e.newType})</span></span>
+            <span class="diff-old">&minus; {jsonSummary(e.oldVal)} <span style="opacity:0.6">({e.oldType})</span></span><br>
+            <span class="diff-new">&plus; {jsonSummary(e.newVal)} <span style="opacity:0.6">({e.newType})</span></span>
           {:else if e.oldVal !== undefined}
             <span class="diff-path" title={e.path}>{prettifyPath(e.path)}</span><br>
-            <span class="diff-old">&minus; {escHtml(jsonSummary(e.oldVal))}</span><br>
-            <span class="diff-new">&plus; {escHtml(jsonSummary(e.newVal))}</span>
+            <span class="diff-old">&minus; {jsonSummary(e.oldVal)}</span><br>
+            <span class="diff-new">&plus; {jsonSummary(e.newVal)}</span>
           {:else if e.kind === 'added'}
             <span class="diff-path" title={e.path}>{prettifyPath(e.path)}</span>
-            {' '}<span class="diff-new">&plus; {escHtml(jsonSummary(e.raw))}</span>
+            {' '}<span class="diff-new">&plus; {jsonSummary(e.raw)}</span>
           {:else if e.kind === 'removed'}
             <span class="diff-path" title={e.path}>{prettifyPath(e.path)}</span>
-            {' '}<span class="diff-old">&minus; {escHtml(jsonSummary(e.raw))}</span>
+            {' '}<span class="diff-old">&minus; {jsonSummary(e.raw)}</span>
           {:else}
-            {escHtml(jsonSummary(e.raw, 2))}
+            {jsonSummary(e.raw, 2)}
           {/if}
         </div>
       {/each}
