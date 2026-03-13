@@ -494,9 +494,16 @@
     </div>
 
     <!-- Host config -->
+    <div class="flex items-center gap-2 mb-2">
+      <span class="text-[0.7em] uppercase tracking-widest text-text-dim font-semibold">Environments</span>
+      <button
+        class="text-[0.7em] text-text-dim hover:text-accent cursor-pointer bg-transparent border border-edge px-2 py-0.5 rounded font-mono hover:border-accent"
+        onclick={() => { ui.activeModal = 'environments'; }}
+      >Manage</button>
+    </div>
     <div class="flex gap-3 items-start mb-5 flex-wrap">
-      <EnvironmentSelector side="A" onmanage={() => { ui.activeModal = 'environments'; }} />
-      <EnvironmentSelector side="B" onmanage={() => { ui.activeModal = 'environments'; }} />
+      <EnvironmentSelector side="A" />
+      <EnvironmentSelector side="B" />
     </div>
 
     <!-- Ignore config -->
