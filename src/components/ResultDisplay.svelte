@@ -3,7 +3,7 @@
   import { statusLabel, contentLength, buildFullMd } from '../../lib/export.js';
   import { jsonSummary } from '../../lib/diff.js';
   import { escHtml } from '../../lib/format.js';
-  import { session } from '../stores/session.svelte.js';
+  import { session, getEnvA, getEnvB } from '../stores/session.svelte.js';
   import { ui } from '../stores/ui.svelte.js';
 
   let { endpoint } = $props();
@@ -58,13 +58,15 @@
   }
 
   function sessionContext() {
+    const envA = getEnvA();
+    const envB = getEnvB();
     return {
       title: session.title,
       memo: session.memo,
-      hostA: session.hostA,
-      hostB: session.hostB,
-      memoA: session.memoA,
-      memoB: session.memoB,
+      hostA: envA?.baseUrl || '',
+      hostB: envB?.baseUrl || '',
+      memoA: envA?.name || '',
+      memoB: envB?.name || '',
     };
   }
 
@@ -214,12 +216,12 @@
       <div class="grid grid-cols-2 gap-3 mt-2.5">
         <div class="relative group bg-bg p-2 rounded-md">
           <button class="absolute top-1 right-1 bg-surface border border-edge text-text-dim text-[0.65em] font-mono px-1.5 py-0.5 rounded cursor-pointer opacity-0 group-hover:opacity-70 hover:opacity-100 hover:text-text-primary hover:border-text-dim z-5 leading-snug" onclick={(e) => clipCopy(fmtBody(r.response_a.body, r.response_a), e.currentTarget)}>copy</button>
-          <div class="text-[0.7em] text-text-dim uppercase tracking-wider mb-1">Host A ({r.response_a.status || 'ERR'})</div>
+          <div class="text-[0.7em] text-text-dim uppercase tracking-wider mb-1">{getEnvA()?.name || 'Environment A'} ({r.response_a.status || 'ERR'})</div>
           <div class="font-mono text-[0.75em] whitespace-pre-wrap max-h-[300px] overflow-y-auto text-text-dim">{isErrorResponse(r.response_a) ? fmtBody(null, r.response_a) : jsonSummary(r.response_a.body, 2)}</div>
         </div>
         <div class="relative group bg-bg p-2 rounded-md">
           <button class="absolute top-1 right-1 bg-surface border border-edge text-text-dim text-[0.65em] font-mono px-1.5 py-0.5 rounded cursor-pointer opacity-0 group-hover:opacity-70 hover:opacity-100 hover:text-text-primary hover:border-text-dim z-5 leading-snug" onclick={(e) => clipCopy(fmtBody(r.response_b.body, r.response_b), e.currentTarget)}>copy</button>
-          <div class="text-[0.7em] text-text-dim uppercase tracking-wider mb-1">Host B ({r.response_b.status || 'ERR'})</div>
+          <div class="text-[0.7em] text-text-dim uppercase tracking-wider mb-1">{getEnvB()?.name || 'Environment B'} ({r.response_b.status || 'ERR'})</div>
           <div class="font-mono text-[0.75em] whitespace-pre-wrap max-h-[300px] overflow-y-auto text-text-dim">{isErrorResponse(r.response_b) ? fmtBody(null, r.response_b) : jsonSummary(r.response_b.body, 2)}</div>
         </div>
       </div>
@@ -270,12 +272,12 @@
           <div class="grid grid-cols-2 gap-3">
             <div class="relative group">
               <button class="absolute top-1 right-1 bg-surface border border-edge text-text-dim text-[0.65em] font-mono px-1.5 py-0.5 rounded cursor-pointer opacity-0 group-hover:opacity-70 hover:opacity-100 hover:text-text-primary hover:border-text-dim z-5 leading-snug" onclick={(e) => clipCopy(formatReqHeaders(r, 'a'), e.currentTarget)}>copy</button>
-              <div class="text-[0.7em] text-text-dim uppercase tracking-wider mb-1">Request to A</div>
+              <div class="text-[0.7em] text-text-dim uppercase tracking-wider mb-1">Request to {getEnvA()?.name || 'A'}</div>
               {formatReqHeaders(r, 'a')}
             </div>
             <div class="relative group">
               <button class="absolute top-1 right-1 bg-surface border border-edge text-text-dim text-[0.65em] font-mono px-1.5 py-0.5 rounded cursor-pointer opacity-0 group-hover:opacity-70 hover:opacity-100 hover:text-text-primary hover:border-text-dim z-5 leading-snug" onclick={(e) => clipCopy(formatReqHeaders(r, 'b'), e.currentTarget)}>copy</button>
-              <div class="text-[0.7em] text-text-dim uppercase tracking-wider mb-1">Request to B</div>
+              <div class="text-[0.7em] text-text-dim uppercase tracking-wider mb-1">Request to {getEnvB()?.name || 'B'}</div>
               {formatReqHeaders(r, 'b')}
             </div>
           </div>

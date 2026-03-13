@@ -29,6 +29,12 @@ DB_AUTH_TOKEN = os.environ.get("DD_DB_AUTH_TOKEN", "")
 HOST = os.environ.get("DD_HOST", "0.0.0.0")
 PORT = int(os.environ.get("DD_PORT", "8899"))
 
+# ── Default environments ──
+DEFAULT_ENVIRONMENTS = [
+    {"id": "default-a", "name": "Host A", "baseUrl": HOST_A, "auth": "", "memo": "", "metadata": {}},
+    {"id": "default-b", "name": "Host B", "baseUrl": HOST_B, "auth": "", "memo": "", "metadata": {}},
+]
+
 # ── Comparison defaults ──
 # Fields expected to differ between instances (add as you discover them)
 DEFAULT_IGNORE = [

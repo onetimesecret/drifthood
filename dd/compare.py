@@ -13,7 +13,7 @@ from deepdiff import DeepDiff
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from dd.config import DEFAULT_IGNORE, HOST_A, HOST_B
+from dd.config import DEFAULT_ENVIRONMENTS, DEFAULT_IGNORE, HOST_A, HOST_B
 
 router = APIRouter()
 
@@ -181,8 +181,7 @@ def do_compare(
 @router.get("/api/config")
 async def get_config():
     return {
-        "host_a": HOST_A,
-        "host_b": HOST_B,
+        "default_environments": DEFAULT_ENVIRONMENTS,
         "default_ignore": DEFAULT_IGNORE,
     }
 

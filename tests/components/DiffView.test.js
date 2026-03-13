@@ -3,17 +3,22 @@ import { render, screen } from '@testing-library/svelte';
 import DiffView from '../../src/components/DiffView.svelte';
 
 // Mock the session store — DiffView reads session.title, session.memo, etc. for copy
-vi.mock('../../src/stores/session.svelte.js', () => ({
-  session: {
-    title: 'Test Session',
-    memo: '',
-    hostA: 'http://localhost:3000',
-    hostB: 'http://localhost:4000',
-    memoA: 'v1',
-    memoB: 'v2',
-    ignorePaths: [],
-  },
-}));
+vi.mock('../../src/stores/session.svelte.js', () => {
+  const envA = { id: 'env-a', name: 'v1', baseUrl: 'http://localhost:3000', auth: '', memo: '', metadata: {} };
+  const envB = { id: 'env-b', name: 'v2', baseUrl: 'http://localhost:4000', auth: '', memo: '', metadata: {} };
+  return {
+    session: {
+      title: 'Test Session',
+      memo: '',
+      environments: [envA, envB],
+      selectedA: 'env-a',
+      selectedB: 'env-b',
+      ignorePaths: [],
+    },
+    getEnvA: () => envA,
+    getEnvB: () => envB,
+  };
+});
 
 // Mock clipboard API
 beforeEach(() => {

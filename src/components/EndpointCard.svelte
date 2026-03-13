@@ -8,7 +8,7 @@
   import { stripOpIdPrefix } from '../../lib/format.js';
   import { toDiffPath } from '../../lib/format.js';
   import { updateEndpoint, removeEndpoint } from '../stores/endpoints.svelte.js';
-  import { session } from '../stores/session.svelte.js';
+  import { session, getEnvA, getEnvB } from '../stores/session.svelte.js';
 
   let { endpoint } = $props();
 
@@ -122,6 +122,8 @@
         ? session.ignorePaths.map(toDiffPath)
         : null;
 
+      const envA = getEnvA();
+      const envB = getEnvB();
       const r = await apiCompare({
         label: ep.label,
         method: ep.method,
@@ -129,10 +131,10 @@
         body: ep.body,
         content_type: ep.content_type,
         group: ep.group,
-        host_a: session.hostA,
-        host_b: session.hostB,
-        auth_a: session.authA || null,
-        auth_b: session.authB || null,
+        host_a: envA?.baseUrl || '',
+        host_b: envB?.baseUrl || '',
+        auth_a: envA?.auth || null,
+        auth_b: envB?.auth || null,
         ignore_paths: ignorePaths,
       });
 

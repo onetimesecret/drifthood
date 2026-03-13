@@ -1,13 +1,12 @@
-import { session, resetSession } from './session.svelte.js';
+import { session, resetSession, createEnvironment } from './session.svelte.js';
 import { endpoints, addEndpoint, clearEndpoints, resetIdCounter } from './endpoints.svelte.js';
-import { ui, resetUi } from './ui.svelte.js';
+import { ui } from './ui.svelte.js';
 import { documents, resetDocuments } from './documents.svelte.js';
 
-const DD_VERSION = '0.4.0';
+import { DD_VERSION } from '../../lib/examples.js';
 
 /**
  * Serialize current state to a plain object suitable for JSON.stringify.
- * Replaces the old collectState() that scraped DOM elements.
  */
 export function snapshot() {
   return {
@@ -17,12 +16,16 @@ export function snapshot() {
     testrunNumber: documents.currentTestrunNumber,
     title: session.title,
     memo: session.memo,
-    hostA: session.hostA,
-    hostB: session.hostB,
-    memoA: session.memoA,
-    memoB: session.memoB,
-    authA: session.authA,
-    authB: session.authB,
+    environments: session.environments.map(env => ({
+      id: env.id,
+      name: env.name,
+      baseUrl: env.baseUrl,
+      auth: env.auth,
+      memo: env.memo,
+      metadata: { ...env.metadata },
+    })),
+    selectedA: session.selectedA,
+    selectedB: session.selectedB,
     specSource: session.specSource,
     ignorePaths: [...session.ignorePaths],
     endpoints: endpoints.map(ep => ({
@@ -45,7 +48,6 @@ export function snapshot() {
 
 /**
  * Restore state from a snapshot object.
- * Replaces the old restoreState() that rebuilt DOM.
  */
 export function restore(snap) {
   // Reset everything first
@@ -56,16 +58,24 @@ export function restore(snap) {
   // Restore session config
   session.title = snap.title || '';
   session.memo = snap.memo || '';
-  session.hostA = snap.hostA || '';
-  session.hostB = snap.hostB || '';
-  session.authA = snap.authA || '';
-  session.authB = snap.authB || '';
-  session.memoA = snap.memoA || '';
-  session.memoB = snap.memoB || '';
   session.specSource = snap.specSource || null;
   if (snap.ignorePaths && snap.ignorePaths.length) {
     session.ignorePaths = [...snap.ignorePaths];
   }
+
+  // Restore environments
+  if (snap.environments && snap.environments.length) {
+    session.environments = snap.environments.map(env => createEnvironment({
+      ...env,
+      metadata: env.metadata ? { ...env.metadata } : {},
+    }));
+    // Preserve original IDs from snapshot
+    for (let i = 0; i < snap.environments.length; i++) {
+      session.environments[i].id = snap.environments[i].id;
+    }
+  }
+  session.selectedA = snap.selectedA || '';
+  session.selectedB = snap.selectedB || '';
 
   // Restore document tracking
   if (snap.documentId) documents.currentDocumentId = snap.documentId;

@@ -1,7 +1,8 @@
 <script>
   import TokenGate from './components/TokenGate.svelte';
   import Sidebar from './components/Sidebar.svelte';
-  import HostConfig from './components/HostConfig.svelte';
+  import EnvironmentSelector from './components/EnvironmentSelector.svelte';
+  import EnvironmentModal from './components/EnvironmentModal.svelte';
   import IgnoreConfig from './components/IgnoreConfig.svelte';
   import ActionBar from './components/ActionBar.svelte';
   import EndpointCard from './components/EndpointCard.svelte';
@@ -13,7 +14,7 @@
   import { apiConfig, apiSave, apiCompare, apiListDocuments, apiGetDocument, apiGetTestrun, apiUpdateDocumentTitle } from '../lib/api.js';
   import { toDiffPath } from '../lib/format.js';
   import { setNestedValue, flattenObj } from '../lib/params.js';
-  import { session } from './stores/session.svelte.js';
+  import { session, addEnvironment, getEnvA, getEnvB } from './stores/session.svelte.js';
   import { endpoints, addEndpoint } from './stores/endpoints.svelte.js';
   import { ui } from './stores/ui.svelte.js';
   import { documents, notifyDocumentsChanged } from './stores/documents.svelte.js';
@@ -117,7 +118,21 @@
       }
     } catch { /* server not running */ }
 
-    // Fresh start
+    // Fresh start — seed default environments from server config
+    try {
+      const cfg = await apiConfig();
+      if (cfg.default_environments && session.environments.length === 0) {
+        for (const env of cfg.default_environments) {
+          const added = addEnvironment(env);
+          // preserve the default IDs from the server
+          added.id = env.id;
+        }
+        if (session.environments.length >= 2) {
+          session.selectedA = session.environments[0].id;
+          session.selectedB = session.environments[1].id;
+        }
+      }
+    } catch { /* config fetch failed, continue without defaults */ }
     addEndpoint();
   }
 
@@ -378,6 +393,8 @@
     const ignorePaths = session.ignorePaths.length
       ? session.ignorePaths.map(toDiffPath)
       : null;
+    const envA = getEnvA();
+    const envB = getEnvB();
 
     for (const ep of endpoints) {
       if (ep.group !== groupName) continue;
@@ -417,10 +434,10 @@
           body,
           content_type: ep.contentType || 'query',
           group: ep.group || null,
-          host_a: session.hostA,
-          host_b: session.hostB,
-          auth_a: session.authA || null,
-          auth_b: session.authB || null,
+          host_a: envA?.baseUrl || '',
+          host_b: envB?.baseUrl || '',
+          auth_a: envA?.auth || null,
+          auth_b: envB?.auth || null,
           ignore_paths: ignorePaths,
         });
         r.request_body = body;
@@ -478,8 +495,8 @@
 
     <!-- Host config -->
     <div class="flex gap-3 items-start mb-5 flex-wrap">
-      <HostConfig side="A" />
-      <HostConfig side="B" />
+      <EnvironmentSelector side="A" onmanage={() => { ui.activeModal = 'environments'; }} />
+      <EnvironmentSelector side="B" onmanage={() => { ui.activeModal = 'environments'; }} />
     </div>
 
     <!-- Ignore config -->
@@ -536,6 +553,7 @@
 <!-- Modals -->
 <OpenApiLoader open={ui.activeModal === 'openapi'} onclose={() => { ui.activeModal = null; }} />
 <SchemaDiff open={ui.activeModal === 'schema-diff'} onclose={() => { ui.activeModal = null; }} />
+<EnvironmentModal open={ui.activeModal === 'environments'} onclose={() => { ui.activeModal = null; }} />
 
 <!-- Drop overlay -->
 {#if dropActive}

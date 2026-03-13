@@ -4,7 +4,7 @@
   import { toDiffPath } from '../../lib/format.js';
   import { setNestedValue, flattenObj } from '../../lib/params.js';
   import { endpoints, addEndpoint, clearEndpoints, clearResults } from '../stores/endpoints.svelte.js';
-  import { session } from '../stores/session.svelte.js';
+  import { session, getEnvA, getEnvB } from '../stores/session.svelte.js';
   import { ui } from '../stores/ui.svelte.js';
   import { snapshot, restore } from '../stores/snapshot.js';
 
@@ -67,6 +67,8 @@
     const ignorePaths = session.ignorePaths.length
       ? session.ignorePaths.map(toDiffPath)
       : null;
+    const envA = getEnvA();
+    const envB = getEnvB();
 
     for (const ep of endpoints) {
       // Skip filtered-out endpoints
@@ -89,10 +91,10 @@
           body: epConfig.body,
           content_type: epConfig.content_type,
           group: epConfig.group,
-          host_a: session.hostA,
-          host_b: session.hostB,
-          auth_a: session.authA || null,
-          auth_b: session.authB || null,
+          host_a: envA?.baseUrl || '',
+          host_b: envB?.baseUrl || '',
+          auth_a: envA?.auth || null,
+          auth_b: envB?.auth || null,
           ignore_paths: ignorePaths,
         });
 

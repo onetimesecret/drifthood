@@ -12,20 +12,23 @@ vi.mock('../../src/stores/endpoints.svelte.js', () => ({
   removeEndpoint: (...args) => mockRemoveEndpoint(...args),
 }));
 
-vi.mock('../../src/stores/session.svelte.js', () => ({
-  session: {
-    title: '',
-    memo: '',
-    hostA: 'http://localhost:3000',
-    hostB: 'http://localhost:4000',
-    authA: '',
-    authB: '',
-    memoA: '',
-    memoB: '',
-    ignorePaths: [],
-    specSource: null,
-  },
-}));
+vi.mock('../../src/stores/session.svelte.js', () => {
+  const envA = { id: 'env-a', name: 'Host A', baseUrl: 'http://localhost:3000', auth: '', memo: '', metadata: {} };
+  const envB = { id: 'env-b', name: 'Host B', baseUrl: 'http://localhost:4000', auth: '', memo: '', metadata: {} };
+  return {
+    session: {
+      title: '',
+      memo: '',
+      environments: [envA, envB],
+      selectedA: 'env-a',
+      selectedB: 'env-b',
+      ignorePaths: [],
+      specSource: null,
+    },
+    getEnvA: () => envA,
+    getEnvB: () => envB,
+  };
+});
 
 vi.mock('../../lib/api.js', () => ({
   apiCompare: vi.fn().mockResolvedValue({

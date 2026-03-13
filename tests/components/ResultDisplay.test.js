@@ -3,17 +3,22 @@ import { render, screen, fireEvent } from '@testing-library/svelte';
 import ResultDisplay from '../../src/components/ResultDisplay.svelte';
 
 // Mock the session store
-vi.mock('../../src/stores/session.svelte.js', () => ({
-  session: {
-    title: 'Test Session',
-    memo: '',
-    hostA: 'http://localhost:3000',
-    hostB: 'http://localhost:4000',
-    memoA: 'v1',
-    memoB: 'v2',
-    ignorePaths: [],
-  },
-}));
+vi.mock('../../src/stores/session.svelte.js', () => {
+  const envA = { id: 'env-a', name: 'v1', baseUrl: 'http://localhost:3000', auth: '', memo: '', metadata: {} };
+  const envB = { id: 'env-b', name: 'v2', baseUrl: 'http://localhost:4000', auth: '', memo: '', metadata: {} };
+  return {
+    session: {
+      title: 'Test Session',
+      memo: '',
+      environments: [envA, envB],
+      selectedA: 'env-a',
+      selectedB: 'env-b',
+      ignorePaths: [],
+    },
+    getEnvA: () => envA,
+    getEnvB: () => envB,
+  };
+});
 
 // Mock clipboard
 beforeEach(() => {
@@ -117,15 +122,15 @@ describe('ResultDisplay', () => {
   });
 
   describe('response body panels', () => {
-    it('shows Host A and Host B labels with status codes', () => {
+    it('shows environment name labels with status codes', () => {
       // Result display shows bodies in an expandable area. DRIFT results auto-expand.
       const endpoint = makeEndpoint({
         has_drift: true,
         diff: { values_changed: { "root['x']": { old_value: 1, new_value: 2 } } },
       }, { state: 'done-drift' });
       render(ResultDisplay, { props: { endpoint } });
-      expect(screen.getByText('Host A (200)')).toBeTruthy();
-      expect(screen.getByText('Host B (200)')).toBeTruthy();
+      expect(screen.getByText('v1 (200)')).toBeTruthy();
+      expect(screen.getByText('v2 (200)')).toBeTruthy();
     });
 
     it('shows ERR for error responses in panel labels', () => {
@@ -136,8 +141,8 @@ describe('ResultDisplay', () => {
         response_b: { status: 200, headers: {}, body: {}, elapsed_ms: 10 },
       }, { state: 'done-drift' });
       render(ResultDisplay, { props: { endpoint } });
-      expect(screen.getByText('Host A (ERR)')).toBeTruthy();
-      expect(screen.getByText('Host B (200)')).toBeTruthy();
+      expect(screen.getByText('v1 (ERR)')).toBeTruthy();
+      expect(screen.getByText('v2 (200)')).toBeTruthy();
     });
   });
 

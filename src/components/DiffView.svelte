@@ -2,7 +2,7 @@
   import { parseDiff, jsonSummary } from '../../lib/diff.js';
   import { prettifyPath } from '../../lib/format.js';
   import { buildDriftSummary } from '../../lib/export.js';
-  import { session } from '../stores/session.svelte.js';
+  import { session, getEnvA, getEnvB } from '../stores/session.svelte.js';
 
   let { result, endpointId } = $props();
 
@@ -26,13 +26,15 @@
 
   function copySummary() {
     if (!result?.has_drift) return;
+    const envA = getEnvA();
+    const envB = getEnvB();
     const text = buildDriftSummary(result, {
       title: session.title,
       memo: session.memo,
-      hostA: session.hostA,
-      hostB: session.hostB,
-      memoA: session.memoA,
-      memoB: session.memoB,
+      hostA: envA?.baseUrl || '',
+      hostB: envB?.baseUrl || '',
+      memoA: envA?.name || '',
+      memoB: envB?.name || '',
     });
     navigator.clipboard.writeText(text).then(() => {
       copyLabel = 'Copied';
