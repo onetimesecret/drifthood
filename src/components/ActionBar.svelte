@@ -3,6 +3,7 @@
   import { apiCompare } from '../../lib/api.js';
   import { toDiffPath } from '../../lib/format.js';
   import { setNestedValue, flattenObj } from '../../lib/params.js';
+  import { runConcurrent } from '../../lib/concurrent.js';
   import { endpoints, addEndpoint, clearEndpoints, clearResults } from '../stores/endpoints.svelte.js';
   import { session, getEnvA, getEnvB } from '../stores/session.svelte.js';
   import { ui } from '../stores/ui.svelte.js';
@@ -61,7 +62,6 @@
     ui.filter = 'all';
   }
 
-  // Run all visible endpoints sequentially
   async function runAll() {
     running = true;
     const ignorePaths = session.ignorePaths.length
@@ -70,51 +70,45 @@
     const envA = getEnvA();
     const envB = getEnvB();
 
+    const tasks = [];
     for (const ep of endpoints) {
-      // Skip filtered-out endpoints
-      if (ui.filter === 'drift' && ep.state !== 'done-drift') continue;
-      if (ui.filter === 'ok' && ep.state !== 'done-ok') continue;
-      // For 'all' filter, run everything
-
-      // We need to gather endpoint config and run apiCompare
       const epConfig = readEndpointConfig(ep);
-
-      // Set running state
       ep.state = 'running';
       ep.result = null;
 
-      try {
-        const r = await apiCompare({
-          label: epConfig.label,
-          method: epConfig.method,
-          path: epConfig.path,
-          body: epConfig.body,
-          content_type: epConfig.content_type,
-          group: epConfig.group,
-          host_a: envA?.baseUrl || '',
-          host_b: envB?.baseUrl || '',
-          auth_a: envA?.auth || null,
-          auth_b: envB?.auth || null,
-          ignore_paths: ignorePaths,
-        });
-
-        r.request_body = epConfig.body;
-        r.request_content_type = epConfig.content_type;
-
-        ep.state = r.has_drift ? 'done-drift' : 'done-ok';
-        ep.result = r;
-      } catch (err) {
-        ep.state = 'done-drift';
-        ep.result = {
-          has_drift: true,
-          error: err.message,
-          diff: {},
-          response_a: { status: null, headers: {}, body: null, elapsed_ms: null },
-          response_b: { status: null, headers: {}, body: null, elapsed_ms: null },
-        };
-      }
+      tasks.push(async () => {
+        try {
+          const r = await apiCompare({
+            label: epConfig.label,
+            method: epConfig.method,
+            path: epConfig.path,
+            body: epConfig.body,
+            content_type: epConfig.content_type,
+            group: epConfig.group,
+            host_a: envA?.baseUrl || '',
+            host_b: envB?.baseUrl || '',
+            auth_a: envA?.auth || null,
+            auth_b: envB?.auth || null,
+            ignore_paths: ignorePaths,
+          });
+          r.request_body = epConfig.body;
+          r.request_content_type = epConfig.content_type;
+          ep.state = r.has_drift ? 'done-drift' : 'done-ok';
+          ep.result = r;
+        } catch (err) {
+          ep.state = 'done-drift';
+          ep.result = {
+            has_drift: true,
+            error: err.message,
+            diff: {},
+            response_a: { status: null, headers: {}, body: null, elapsed_ms: null },
+            response_b: { status: null, headers: {}, body: null, elapsed_ms: null },
+          };
+        }
+      });
     }
 
+    await runConcurrent(tasks);
     running = false;
   }
 

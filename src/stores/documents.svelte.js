@@ -12,6 +12,26 @@ export function notifyDocumentsChanged() {
   documents.refreshVersion++;
 }
 
+const LAST_DOC_KEY = 'dd:lastDocument';
+
+/** Persist the current doc/testrun so it survives page refresh. */
+export function rememberLastDocument(docId, testrunNumber) {
+  try {
+    localStorage.setItem(LAST_DOC_KEY, JSON.stringify({ docId, testrunNumber }));
+  } catch { /* quota / private browsing */ }
+}
+
+/** Retrieve the last-viewed doc/testrun, or null. */
+export function recallLastDocument() {
+  try {
+    const raw = localStorage.getItem(LAST_DOC_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed?.docId) return parsed;
+  } catch { /* corrupted */ }
+  return null;
+}
+
 export function resetDocuments() {
   documents.currentDocumentId = null;
   documents.currentTestrunNumber = 0;

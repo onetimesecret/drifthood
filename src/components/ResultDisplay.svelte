@@ -2,7 +2,7 @@
   import DiffView from './DiffView.svelte';
   import { statusLabel, contentLength, buildFullMd } from '../../lib/export.js';
   import { jsonSummary } from '../../lib/diff.js';
-  import { escHtml } from '../../lib/format.js';
+  import { escHtml, relativeTime } from '../../lib/format.js';
   import { session, getEnvA, getEnvB } from '../stores/session.svelte.js';
   import { ui } from '../stores/ui.svelte.js';
 
@@ -37,10 +37,14 @@
     }
   });
 
+  const STALE_THRESHOLD_MS = 5 * 60 * 1000;
+
   // Computed meta strings
   let metaStatus = $derived(r ? `${statusLabel(r.response_a)}/${statusLabel(r.response_b)}` : '');
   let metaSize = $derived(r ? `${isErrorResponse(r.response_a) ? 'N/A' : contentLength(r.response_a)}/${isErrorResponse(r.response_b) ? 'N/A' : contentLength(r.response_b)} bytes` : '');
   let metaTiming = $derived(r ? `${r.response_a.elapsed_ms ?? 'N/A'}/${r.response_b.elapsed_ms ?? 'N/A'}ms` : '');
+  let capturedAge = $derived(r?.captured_at ? relativeTime(r.captured_at) : '');
+  let isStale = $derived(r?.captured_at ? (Date.now() - new Date(r.captured_at).getTime()) > STALE_THRESHOLD_MS : false);
 
   // Request body formatting
   let reqBodyFmt = $derived(r ? formatRequestBody(r.request_body, r.request_content_type) : null);
@@ -204,12 +208,15 @@
 </script>
 
 {#if r}
-  <div class="border-t border-edge">
+  <div class="border-t border-edge {isStale ? 'opacity-75' : ''}">
     <div class="flex items-center gap-2.5 px-3 py-2 cursor-pointer select-none text-[0.85em] hover:bg-white/[0.02]" role="button" tabindex="0" onclick={toggleBody} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleBody(); } }}>
       <span class="chevron text-text-dim text-[0.8em] transition-transform duration-150" class:open={expanded}>&#9654;</span>
       <span class="text-[0.75em] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider {badgeClasses}">{badgeText}</span>
       <span class="font-mono text-[0.75em] text-text-dim">{metaStatus} {metaSize}</span>
       <span class="ml-auto font-mono text-[0.75em] text-text-dim">{metaTiming}</span>
+      {#if capturedAge}
+        <span class="font-mono text-[0.65em] {isStale ? 'text-yellow' : 'text-text-dim'}" title={r.captured_at}>{isStale ? 'stale: ' : ''}{capturedAge}</span>
+      {/if}
     </div>
 
     <div class="toggle-block px-3.5 py-3 border-t border-edge" class:open={expanded}>

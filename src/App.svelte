@@ -15,10 +15,11 @@
   import { toDiffPath } from '../lib/format.js';
   import { setNestedValue, flattenObj } from '../lib/params.js';
   import { session, addEnvironment, getEnvA, getEnvB } from './stores/session.svelte.js';
-  import { endpoints, addEndpoint } from './stores/endpoints.svelte.js';
+  import { endpoints, addEndpoint, clearResults } from './stores/endpoints.svelte.js';
   import { ui } from './stores/ui.svelte.js';
-  import { documents, notifyDocumentsChanged } from './stores/documents.svelte.js';
+  import { documents, notifyDocumentsChanged, rememberLastDocument, recallLastDocument } from './stores/documents.svelte.js';
   import { snapshot, restore } from './stores/snapshot.js';
+  import { runConcurrent } from '../lib/concurrent.js';
 
   // ── Save button state ──
   let saveStatus = $state({ text: 'Save', color: '', disabled: false });
@@ -90,6 +91,26 @@
     return () => window.removeEventListener('scroll', onScroll);
   });
 
+  // ── Invalidate results when environment config changes ──
+  let lastEnvFingerprint = '';
+  $effect(() => {
+    const envA = getEnvA();
+    const envB = getEnvB();
+    const fp = JSON.stringify([
+      session.selectedA, session.selectedB,
+      envA?.baseUrl, envA?.auth,
+      envB?.baseUrl, envB?.auth,
+    ]);
+    if (lastEnvFingerprint && fp !== lastEnvFingerprint) {
+      const hasResults = endpoints.some(ep => ep.result !== null);
+      if (hasResults) {
+        clearResults();
+        showDropToast('Results cleared — environment changed', false);
+      }
+    }
+    lastEnvFingerprint = fp;
+  });
+
   async function init() {
     // Check for embedded snapshot (HTML export)
     if (typeof globalThis.DD_SNAPSHOT !== 'undefined' && globalThis.DD_SNAPSHOT?.endpoints) {
@@ -102,10 +123,22 @@
       return;
     }
 
-    // Try loading most recent document from DB
+    // Try loading last-viewed document, falling back to most recent
     try {
       const data = await apiListDocuments();
       if (data.documents?.length) {
+        const last = recallLastDocument();
+        const docIds = new Set(data.documents.map(d => d.id));
+
+        // Prefer the remembered doc if it still exists
+        if (last?.docId && docIds.has(last.docId)) {
+          try {
+            await loadSavedTestrun(last.docId, last.testrunNumber);
+            return;
+          } catch { /* fall through to most recent */ }
+        }
+
+        // Fall back to most recent document
         const mostRecent = data.documents[0];
         try {
           const docData = await apiGetDocument(mostRecent.id);
@@ -154,6 +187,7 @@
       documents.currentDocumentId = docId;
       documents.currentTestrunNumber = testrunNumber;
       documents.lastSavedStateHash = stateFingerprint(state);
+      rememberLastDocument(docId, testrunNumber);
       breadcrumbText = `doc #${docId} testrun #${testrunNumber}`;
       showDropToast(`Loaded testrun #${testrunNumber}`, false);
       startAutosave();
@@ -174,9 +208,10 @@
           documents.currentTestrunNumber = data.testrun.testrun_number;
         }
         documents.lastSavedStateHash = stateFingerprint(state);
+        rememberLastDocument(documents.currentDocumentId, documents.currentTestrunNumber);
         breadcrumbText = `doc #${documents.currentDocumentId} testrun #${documents.currentTestrunNumber}`;
         startAutosave();
-        saveStatus = { text: 'Saved', color: 'var(--green)', disabled: true };
+        saveStatus = { text: '\u2713 Saved', color: 'var(--green)', disabled: true };
         notifyDocumentsChanged();
         showDropToast(`Saved testrun #${documents.currentTestrunNumber}`, false);
       } else {
@@ -189,7 +224,7 @@
     }
     setTimeout(() => {
       saveStatus = { text: 'Save', color: '', disabled: false };
-    }, 1500);
+    }, 3000);
   }
 
   // ── Title blur → update doc title ──
@@ -323,6 +358,8 @@
     if (data.endpoints && Array.isArray(data.endpoints)) {
       stopAutosave();
       restore(data);
+      documents.currentDocumentId = null;
+      documents.currentTestrunNumber = 0;
       breadcrumbText = data.specSource || filename;
       showDropToast('Loaded testrun: ' + filename, false);
       startAutosave();
@@ -350,6 +387,8 @@
       }
       stopAutosave();
       restore(snap);
+      documents.currentDocumentId = null;
+      documents.currentTestrunNumber = 0;
       const src = snap.specSource || filename;
       const when = snap.savedAt ? ' (' + snap.savedAt.slice(0, 19).replace('T', ' ') + ')' : '';
       breadcrumbText = 'snapshot: ' + src + when;
@@ -396,13 +435,13 @@
     const envA = getEnvA();
     const envB = getEnvB();
 
+    const tasks = [];
     for (const ep of endpoints) {
       if (ep.group !== groupName) continue;
 
       ep.state = 'running';
       ep.result = null;
 
-      // Build config (same as ActionBar.readEndpointConfig)
       let body = ep.body || null;
       if (ep.fieldsMode === 'on' && ep.cardFields?.fields?.length > 0) {
         const fv = ep.fieldValues || {};
@@ -426,33 +465,41 @@
         }
       }
 
-      try {
-        const r = await apiCompare({
-          label: ep.label || ep.path,
-          method: ep.method,
-          path,
-          body,
-          content_type: ep.contentType || 'query',
-          group: ep.group || null,
-          host_a: envA?.baseUrl || '',
-          host_b: envB?.baseUrl || '',
-          auth_a: envA?.auth || null,
-          auth_b: envB?.auth || null,
-          ignore_paths: ignorePaths,
-        });
-        r.request_body = body;
-        r.request_content_type = ep.contentType || 'query';
-        ep.state = r.has_drift ? 'done-drift' : 'done-ok';
-        ep.result = r;
-      } catch (err) {
-        ep.state = 'done-drift';
-        ep.result = {
-          has_drift: true, error: err.message, diff: {},
-          response_a: { status: null, headers: {}, body: null, elapsed_ms: null },
-          response_b: { status: null, headers: {}, body: null, elapsed_ms: null },
-        };
-      }
+      const capturedBody = body;
+      const capturedPath = path;
+      const capturedContentType = ep.contentType || 'query';
+
+      tasks.push(async () => {
+        try {
+          const r = await apiCompare({
+            label: ep.label || ep.path,
+            method: ep.method,
+            path: capturedPath,
+            body: capturedBody,
+            content_type: capturedContentType,
+            group: ep.group || null,
+            host_a: envA?.baseUrl || '',
+            host_b: envB?.baseUrl || '',
+            auth_a: envA?.auth || null,
+            auth_b: envB?.auth || null,
+            ignore_paths: ignorePaths,
+          });
+          r.request_body = capturedBody;
+          r.request_content_type = capturedContentType;
+          ep.state = r.has_drift ? 'done-drift' : 'done-ok';
+          ep.result = r;
+        } catch (err) {
+          ep.state = 'done-drift';
+          ep.result = {
+            has_drift: true, error: err.message, diff: {},
+            response_a: { status: null, headers: {}, body: null, elapsed_ms: null },
+            response_b: { status: null, headers: {}, body: null, elapsed_ms: null },
+          };
+        }
+      });
     }
+
+    await runConcurrent(tasks);
   }
 </script>
 
@@ -547,11 +594,15 @@
       {/each}
     </div>
 
+    <!-- Spacer so the fixed back-to-top button never overlaps the last card -->
+    <div class="h-16"></div>
+
     <!-- Back to top -->
     {#if showBackToTop}
       <button
         class="fixed bottom-6 right-6 bg-surface border border-edge text-accent w-10 h-10 rounded-full cursor-pointer text-[1.2em] flex items-center justify-center z-30 shadow-[0_4px_12px_rgba(0,0,0,0.4)] hover:bg-accent/15"
         onclick={scrollToTop}
+        title="Scroll to top"
       >&#8593;</button>
     {/if}
   </div>

@@ -29,6 +29,10 @@ DB_AUTH_TOKEN = os.environ.get("DD_DB_AUTH_TOKEN", "")
 HOST = os.environ.get("DD_HOST", "0.0.0.0")
 PORT = int(os.environ.get("DD_PORT", "8899"))
 
+# ── SSL ──
+# Set DD_VERIFY_SSL=0 to skip certificate verification (e.g. self-signed certs behind Caddy)
+VERIFY_SSL = os.environ.get("DD_VERIFY_SSL", "1") not in ("0", "false", "no")
+
 # ── Default environments ──
 DEFAULT_ENVIRONMENTS = [
     {"id": "default-a", "name": "Host A", "baseUrl": HOST_A, "auth": "", "memo": "", "metadata": {}},

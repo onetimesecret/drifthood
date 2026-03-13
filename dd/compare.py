@@ -6,6 +6,7 @@ Also contains the HTTP client helper (hit) and request models.
 """
 
 import json
+from datetime import datetime, timezone
 from typing import Optional
 
 import requests as req
@@ -13,7 +14,7 @@ from deepdiff import DeepDiff
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from dd.config import DEFAULT_ENVIRONMENTS, DEFAULT_IGNORE, HOST_A, HOST_B
+from dd.config import DEFAULT_ENVIRONMENTS, DEFAULT_IGNORE, HOST_A, HOST_B, VERIFY_SSL
 
 router = APIRouter()
 
@@ -98,6 +99,7 @@ def hit(
             headers=headers,
             auth=auth_tuple,
             timeout=15,
+            verify=VERIFY_SSL,
         )
         ct = r.headers.get("content-type", "")
         if "json" in ct:
@@ -179,6 +181,7 @@ def do_compare(
         "ignored_paths": ignore,
         "response_a": a,
         "response_b": b,
+        "captured_at": datetime.now(timezone.utc).isoformat(),
     }
 
 

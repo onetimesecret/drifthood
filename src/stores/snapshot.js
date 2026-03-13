@@ -77,13 +77,13 @@ export function restore(snap) {
   session.selectedA = snap.selectedA || '';
   session.selectedB = snap.selectedB || '';
 
-  // Restore document tracking
-  if (snap.documentId) documents.currentDocumentId = snap.documentId;
-  documents.currentTestrunNumber = snap.testrunNumber || snap.sessionNumber || 0;
+  // NOTE: Document tracking (currentDocumentId, currentTestrunNumber) is NOT
+  // restored here — callers set it after restore() to avoid stale snapshot
+  // values overwriting the actual navigation target.
 
-  // Restore endpoints
+  // Restore endpoints (config only — results start clean to avoid stale data)
   for (const ep of (snap.endpoints || [])) {
-    const id = addEndpoint({
+    addEndpoint({
       method: ep.method,
       label: ep.label,
       path: ep.path,
@@ -94,14 +94,6 @@ export function restore(snap) {
       cardFields: ep.cardFields || null,
       fieldValues: ep.fieldValues || null,
     });
-    // Restore run state and result if present in the snapshot
-    if (ep.state && ep.state !== 'idle') {
-      const restored = endpoints.find(e => e.id === id);
-      if (restored) {
-        restored.state = ep.state;
-        restored.result = ep.result || null;
-      }
-    }
   }
 
   // Restore UI state

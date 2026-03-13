@@ -1,7 +1,7 @@
 <script>
   import { apiListDocuments, apiGetTestruns, apiGetTestrun, apiDeleteTestrun } from '../../lib/api.js';
   import { relativeTime, driftIndicator } from '../../lib/format.js';
-  import { documents, resetDocuments } from '../stores/documents.svelte.js';
+  import { documents, resetDocuments, rememberLastDocument } from '../stores/documents.svelte.js';
   import { endpoints, addEndpoint, clearEndpoints, resetIdCounter } from '../stores/endpoints.svelte.js';
   import { session, resetSession } from '../stores/session.svelte.js';
   import { ui, resetUi } from '../stores/ui.svelte.js';
@@ -31,16 +31,19 @@
     ui.sidebarCollapsed = !ui.sidebarCollapsed;
   }
 
-  function toggleDoc(docId) {
+  async function toggleDoc(docId) {
     const expanded = ui.expandedDocs;
     if (expanded.has(docId)) {
       expanded.delete(docId);
-      // Force reactivity on Set mutation
       ui.expandedDocs = new Set(expanded);
     } else {
       expanded.add(docId);
       ui.expandedDocs = new Set(expanded);
-      loadTestrunsForDoc(docId);
+      await loadTestrunsForDoc(docId);
+      const testruns = testrunsByDoc[docId];
+      if (testruns?.length) {
+        loadTestrun(docId, testruns[0].testrun_number);
+      }
     }
   }
 
@@ -80,6 +83,7 @@
       documents.currentDocumentId = docId;
       documents.currentTestrunNumber = testrunNumber;
       documents.lastSavedStateHash = stateFingerprint(state);
+      rememberLastDocument(docId, testrunNumber);
       onBreadcrumb?.(`doc #${docId} testrun #${testrunNumber}`);
     } catch {
       // Silent failure
@@ -122,7 +126,14 @@
   <button class="block w-[calc(100%-24px)] mx-3 my-2 px-2.5 py-1.5 text-[0.8em] bg-transparent border border-dashed border-edge text-text-dim rounded-md cursor-pointer text-left hover:border-accent hover:text-accent" onclick={newDocument}>+ New document</button>
 
   <div class="flex-1 overflow-y-auto py-1">
-    {#if documents.list.length === 0}
+    {#if !documents.currentDocumentId && endpoints.length > 0}
+      <div class="border-b border-edge">
+        <div class="flex items-center gap-1.5 px-3.5 py-2 text-[0.8em] bg-accent/[0.08]">
+          <span class="flex-1 whitespace-nowrap overflow-hidden text-ellipsis font-medium italic text-text-dim">{session.title || 'Untitled'} <span class="text-[0.85em] opacity-60">(unsaved)</span></span>
+        </div>
+      </div>
+    {/if}
+    {#if documents.list.length === 0 && (documents.currentDocumentId || endpoints.length === 0)}
       <div class="px-3.5 py-3 text-[0.8em] text-text-dim">No documents yet.</div>
     {:else}
       {#each documents.list as doc}
