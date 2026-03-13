@@ -55,3 +55,83 @@ Ranked by impact on Drift Detector's core job:
 5. **Per-host auth injection** (SwaggerUI) — quality of life, reduces setup friction per test run.
 
 The first one is the structural limitation. Everything else improves coverage or ergonomics, but without chaining, you're restricted to endpoints that don't depend on runtime values from other endpoints.
+
+
+---
+
+You click Run, expect fresh data, and get back what looks like the same stale response.
+
+  The structural reason is straightforward: runGroup() does clear ep.result = null and makes a fresh API
+   call — so if the response truly changed, the UI should update. If it didn't, the actual bug is
+  either:
+
+  1. The run didn't actually fire for that endpoint (group name mismatch, or the endpoint was filtered
+  out)
+  2. The API call returned the same stale data (upstream caching, SSL cert issue causing fallback,
+  connection reuse)
+  3. The result object changed but the component didn't re-render (Svelte reactivity issue with mutating
+   the same object reference)
+
+  Since "Clean runs" + "Run Group" fixed it, that points strongly at #3 — a reactivity problem. Setting
+  ep.result = null then ep.result = newResult on the same object may not trigger Svelte 5's fine-grained
+   reactivity if the proxy doesn't detect the intermediate null. The clean run forces a full reset via
+  clearResults() which replaces every endpoint's state, guaranteeing a reactive update.
+
+The problem: restore() doesn't distinguish between "load this configuration to run again" and "display
+  these historical results as if they're current." It treats saved results identically to live results
+— same state field, same rendering, no timestamp, no provenance. So when init() auto-loads the most
+recent testrun on page load, stale results appear indistinguishable from a run you just triggered.
+
+It is a structural  problem. On every page load, init() (line 93) automatically loads the most recent
+testrun from the DB — including its stale results — and restores them into live state. Then autosave
+starts, which means those stale results get re-persisted on a 60-second loop, creating a
+self-reinforcing cycle of stale data.
+
+The result: you restart a server, open DriftDetector, and it looks like you just ran everything — but
+you're seeing data from the last autosave. There's no visual indicator that these results are from 20
+minutes ago, or 2 days ago.
+
+Here's how well-known tools in this space handle the same problem, and the tradeoffs:
+
+1. Postman / Insomnia model: Results are ephemeral, never restored
+On open, the response panel is empty. You must click Send. Saved "examples" are explicitly labeled as
+historical snapshots, never injected into the live workspace. Tradeoff: you lose continuity between
+sessions, but you never mistake old data for current.
+
+2. Playwright / Vitest model: Results invalidated on input change
+When the source code changes, previous test results are grayed out or cleared. A re-run is required.
+The runner knows "this result was produced from different inputs than what's configured now."
+Tradeoff: needs a staleness signal (hash of inputs vs. hash at capture time).
+
+3. Grafana / Datadog model: Timestamp is always visible, auto-refresh is the norm
+Every panel shows when data was last fetched. Stale data gets a visible age indicator. Many panels
+auto-refresh on an interval. Tradeoff: requires bandwidth for polling, but staleness is never
+ambiguous.
+
+For DriftDetector, I'd look at a combination of 2 and 3, applied as three concrete changes:
+
+A. Restore configuration, not results. When restore() loads a saved testrun, restore the endpoints,
+environments, ignore paths — but set ep.state = 'idle' and ep.result = null. The saved results still
+exist in the DB for review via the sidebar, but the active workspace starts clean. This is the single
+highest-impact change: it eliminates the entire class of "looking at stale data without knowing it."
+
+B. Capture a timestamp per result, show it. The backend already returns elapsed_ms; add a captured_at
+ISO timestamp to each hit() response. Display it subtly in the result card (e.g., "3m ago" or "2h
+ago"). When it crosses a threshold — say 5 minutes — the result fades or gets a "stale" badge. This
+gives situational awareness even within a single session.
+
+C. Invalidate results when environments change. If the user changes Host B's URL or auth, all existing
+  results were produced against a different target. Clear them, or at minimum mark them stale. This is
+the "inputs changed, outputs are suspect" signal from the Playwright model.
+
+The autosave mechanism can continue as-is — it's useful for crash recovery. The key insight is that
+saving state and restoring results into the active workspace are different operations, and conflating
+them is what creates the "sticky" behavior.
+
+Want me to implement these, or do you want to adjust the approach first?
+
+---
+
+Related links
+
+https://buildwithfern.com/#docs
