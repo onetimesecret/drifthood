@@ -14,7 +14,7 @@ export function snapshot() {
     version: DD_VERSION,
     savedAt: new Date().toISOString(),
     documentId: documents.currentDocumentId,
-    sessionNumber: documents.currentSessionNumber,
+    testrunNumber: documents.currentTestrunNumber,
     title: session.title,
     memo: session.memo,
     hostA: session.hostA,
@@ -69,7 +69,7 @@ export function restore(snap) {
 
   // Restore document tracking
   if (snap.documentId) documents.currentDocumentId = snap.documentId;
-  if (snap.sessionNumber) documents.currentSessionNumber = snap.sessionNumber;
+  documents.currentTestrunNumber = snap.testrunNumber || snap.sessionNumber || 0;
 
   // Restore endpoints
   for (const ep of (snap.endpoints || [])) {

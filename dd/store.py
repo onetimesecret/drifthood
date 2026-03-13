@@ -1,12 +1,12 @@
 # drift-detector/dd/store.py
 
 """
-SQLite / Turso storage for Drift Detector documents and sessions.
+SQLite / Turso storage for Drift Detector documents and testruns.
 
 Document = a named container (like a notebook/runbook).
-Session  = a numbered snapshot within a document. Each Save appends one.
+Testrun  = a numbered snapshot within a document. Each Save appends one.
            Contains the full cumulative state at that point.
-           session_type is either 'save' (explicit) or 'autosave' (periodic).
+           testrun_type is either 'save' (explicit) or 'autosave' (periodic).
 
 Schema is deliberately flat and simple. JSON goes in as TEXT.
 
@@ -102,18 +102,19 @@ def init_db():
     conn = _connect()
     conn.execute("""
         CREATE TABLE IF NOT EXISTS documents (
-            id          INTEGER PRIMARY KEY AUTOINCREMENT,
-            title       TEXT NOT NULL DEFAULT 'Untitled',
-            created_at  TEXT NOT NULL,
-            updated_at  TEXT NOT NULL
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            title        TEXT NOT NULL DEFAULT 'Untitled',
+            session_hash TEXT,
+            created_at   TEXT NOT NULL,
+            updated_at   TEXT NOT NULL
         )
     """)
     conn.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
+        CREATE TABLE IF NOT EXISTS testruns (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
             document_id     INTEGER NOT NULL REFERENCES documents(id),
-            session_number  INTEGER NOT NULL,
-            session_type    TEXT NOT NULL DEFAULT 'save',
+            testrun_number  INTEGER NOT NULL,
+            testrun_type    TEXT NOT NULL DEFAULT 'save',
             endpoint_count  INTEGER NOT NULL DEFAULT 0,
             drift_count     INTEGER NOT NULL DEFAULT 0,
             ok_count        INTEGER NOT NULL DEFAULT 0,
@@ -122,43 +123,67 @@ def init_db():
             created_at      TEXT NOT NULL,
             updated_at      TEXT,
             deleted_at      TEXT,
-            UNIQUE(document_id, session_number)
+            UNIQUE(document_id, testrun_number)
         )
     """)
     conn.execute(
-        "CREATE INDEX IF NOT EXISTS idx_sessions_doc ON sessions(document_id)"
+        "CREATE INDEX IF NOT EXISTS idx_testruns_doc ON testruns(document_id)"
+    )
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_documents_session_hash ON documents(session_hash)"
     )
     conn.commit()
 
-    # Migrations for existing DBs
-    cursor = conn.execute("PRAGMA table_info(sessions)")
+    # Migration: rename sessions -> testruns (for existing DBs)
+    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'")
+    if cursor.fetchone():
+        testruns_check = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='testruns'")
+        if not testruns_check.fetchone():
+            conn.execute("ALTER TABLE sessions RENAME TO testruns")
+            conn.execute("ALTER TABLE testruns RENAME COLUMN session_number TO testrun_number")
+            conn.execute("ALTER TABLE testruns RENAME COLUMN session_type TO testrun_type")
+            # Drop old index, create new one
+            conn.execute("DROP INDEX IF EXISTS idx_sessions_doc")
+            conn.execute("CREATE INDEX IF NOT EXISTS idx_testruns_doc ON testruns(document_id)")
+            conn.commit()
+
+    # Migration: add session_hash column to documents
+    cursor = conn.execute("PRAGMA table_info(documents)")
+    doc_columns = [row[1] if isinstance(row, tuple) else row["name"] for row in cursor.fetchall()]
+    if "session_hash" not in doc_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN session_hash TEXT")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_session_hash ON documents(session_hash)")
+        conn.commit()
+
+    # Migrations for existing testruns table
+    cursor = conn.execute("PRAGMA table_info(testruns)")
     columns = [
         row[1] if isinstance(row, tuple) else row["name"]
         for row in cursor.fetchall()
     ]
     migrations = []
-    if "session_type" not in columns:
+    if "testrun_type" not in columns:
         migrations.append(
-            "ALTER TABLE sessions ADD COLUMN session_type TEXT NOT NULL DEFAULT 'save'"
+            "ALTER TABLE testruns ADD COLUMN testrun_type TEXT NOT NULL DEFAULT 'save'"
         )
     if "endpoint_count" not in columns:
         migrations.append(
-            "ALTER TABLE sessions ADD COLUMN endpoint_count INTEGER NOT NULL DEFAULT 0"
+            "ALTER TABLE testruns ADD COLUMN endpoint_count INTEGER NOT NULL DEFAULT 0"
         )
     if "drift_count" not in columns:
         migrations.append(
-            "ALTER TABLE sessions ADD COLUMN drift_count INTEGER NOT NULL DEFAULT 0"
+            "ALTER TABLE testruns ADD COLUMN drift_count INTEGER NOT NULL DEFAULT 0"
         )
     if "ok_count" not in columns:
         migrations.append(
-            "ALTER TABLE sessions ADD COLUMN ok_count INTEGER NOT NULL DEFAULT 0"
+            "ALTER TABLE testruns ADD COLUMN ok_count INTEGER NOT NULL DEFAULT 0"
         )
     if "state_hash" not in columns:
-        migrations.append("ALTER TABLE sessions ADD COLUMN state_hash TEXT")
+        migrations.append("ALTER TABLE testruns ADD COLUMN state_hash TEXT")
     if "updated_at" not in columns:
-        migrations.append("ALTER TABLE sessions ADD COLUMN updated_at TEXT")
+        migrations.append("ALTER TABLE testruns ADD COLUMN updated_at TEXT")
     if "deleted_at" not in columns:
-        migrations.append("ALTER TABLE sessions ADD COLUMN deleted_at TEXT")
+        migrations.append("ALTER TABLE testruns ADD COLUMN deleted_at TEXT")
     for sql in migrations:
         conn.execute(sql)
     if migrations:
@@ -176,7 +201,7 @@ def _hash_state(state: dict) -> str:
     s = {
         k: v
         for k, v in state.items()
-        if k not in ("savedAt", "sessionNumber", "version")
+        if k not in ("savedAt", "sessionNumber", "testrunNumber", "version")
     }
     raw = json.dumps(s, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
@@ -197,12 +222,12 @@ def _summarize_state(state: dict) -> dict:
 # ── Documents ──
 
 
-def create_document(title: str) -> dict:
+def create_document(title: str, session_hash: str = None) -> dict:
     now = _now()
     conn = _connect()
     cur = conn.execute(
-        "INSERT INTO documents (title, created_at, updated_at) VALUES (?, ?, ?)",
-        (title, now, now),
+        "INSERT INTO documents (title, session_hash, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        (title, session_hash, now, now),
     )
     doc_id = cur.lastrowid
     conn.commit()
@@ -220,18 +245,31 @@ def get_document(doc_id: int) -> dict | None:
     return doc
 
 
-def list_documents() -> list[dict]:
+def list_documents(session_hash: str = None) -> list[dict]:
     conn = _connect()
-    cur = conn.execute("""
-        SELECT d.*,
-               COUNT(s.id) AS session_count,
-               COUNT(CASE WHEN s.session_type = 'save' THEN 1 END) AS save_count,
-               COUNT(CASE WHEN s.session_type = 'autosave' THEN 1 END) AS autosave_count
-        FROM documents d
-        LEFT JOIN sessions s ON s.document_id = d.id AND s.deleted_at IS NULL
-        GROUP BY d.id
-        ORDER BY d.title COLLATE NOCASE ASC
-    """)
+    if session_hash is not None:
+        cur = conn.execute("""
+            SELECT d.*,
+                   COUNT(s.id) AS testrun_count,
+                   COUNT(CASE WHEN s.testrun_type = 'save' THEN 1 END) AS save_count,
+                   COUNT(CASE WHEN s.testrun_type = 'autosave' THEN 1 END) AS autosave_count
+            FROM documents d
+            LEFT JOIN testruns s ON s.document_id = d.id AND s.deleted_at IS NULL
+            WHERE d.session_hash = ?
+            GROUP BY d.id
+            ORDER BY d.title COLLATE NOCASE ASC
+        """, (session_hash,))
+    else:
+        cur = conn.execute("""
+            SELECT d.*,
+                   COUNT(s.id) AS testrun_count,
+                   COUNT(CASE WHEN s.testrun_type = 'save' THEN 1 END) AS save_count,
+                   COUNT(CASE WHEN s.testrun_type = 'autosave' THEN 1 END) AS autosave_count
+            FROM documents d
+            LEFT JOIN testruns s ON s.document_id = d.id AND s.deleted_at IS NULL
+            GROUP BY d.id
+            ORDER BY d.title COLLATE NOCASE ASC
+        """)
     rows = _fetchall_dict(cur)
     conn.close()
     return rows
@@ -247,23 +285,23 @@ def update_document_title(doc_id: int, title: str):
     conn.close()
 
 
-# ── Sessions ──
+# ── Testruns ──
 
 
-def create_session(
-    document_id: int, state: dict, session_type: str = "save"
+def create_testrun(
+    document_id: int, state: dict, testrun_type: str = "save"
 ) -> dict:
-    assert session_type in ("save", "autosave"), (
-        f"Invalid session_type: {session_type}"
+    assert testrun_type in ("save", "autosave"), (
+        f"Invalid testrun_type: {testrun_type}"
     )
     now = _now()
     summary = _summarize_state(state)
     state_hash = _hash_state(state)
     conn = _connect()
 
-    if session_type == "autosave":
+    if testrun_type == "autosave":
         cur = conn.execute(
-            "SELECT state_hash FROM sessions WHERE document_id = ? AND deleted_at IS NULL ORDER BY session_number DESC LIMIT 1",
+            "SELECT state_hash FROM testruns WHERE document_id = ? AND deleted_at IS NULL ORDER BY testrun_number DESC LIMIT 1",
             (document_id,),
         )
         last = _fetchone_dict(cur)
@@ -276,7 +314,7 @@ def create_session(
             }
 
     cur = conn.execute(
-        "SELECT COALESCE(MAX(session_number), 0) AS mx FROM sessions WHERE document_id = ?",
+        "SELECT COALESCE(MAX(testrun_number), 0) AS mx FROM testruns WHERE document_id = ?",
         (document_id,),
     )
     row = _fetchone_dict(cur)
@@ -284,13 +322,13 @@ def create_session(
 
     state_json = json.dumps(state)
     conn.execute(
-        """INSERT INTO sessions
-           (document_id, session_number, session_type, endpoint_count, drift_count, ok_count, state_json, state_hash, created_at)
+        """INSERT INTO testruns
+           (document_id, testrun_number, testrun_type, endpoint_count, drift_count, ok_count, state_json, state_hash, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             document_id,
             next_num,
-            session_type,
+            testrun_type,
             summary["endpoint_count"],
             summary["drift_count"],
             summary["ok_count"],
@@ -307,23 +345,23 @@ def create_session(
     conn.commit()
 
     cur2 = conn.execute(
-        """SELECT id, document_id, session_number, session_type,
+        """SELECT id, document_id, testrun_number, testrun_type,
                   endpoint_count, drift_count, ok_count, state_hash, created_at, updated_at
-           FROM sessions WHERE document_id = ? AND session_number = ?""",
+           FROM testruns WHERE document_id = ? AND testrun_number = ?""",
         (document_id, next_num),
     )
-    session = _fetchone_dict(cur2)
+    testrun = _fetchone_dict(cur2)
     conn.close()
-    return session
+    return testrun
 
 
-def list_sessions(document_id: int) -> list[dict]:
+def list_testruns(document_id: int) -> list[dict]:
     conn = _connect()
     cur = conn.execute(
-        """SELECT id, document_id, session_number, session_type,
+        """SELECT id, document_id, testrun_number, testrun_type,
                   endpoint_count, drift_count, ok_count, state_hash, created_at, updated_at
-           FROM sessions WHERE document_id = ? AND deleted_at IS NULL
-           ORDER BY session_number""",
+           FROM testruns WHERE document_id = ? AND deleted_at IS NULL
+           ORDER BY testrun_number""",
         (document_id,),
     )
     rows = _fetchall_dict(cur)
@@ -331,9 +369,9 @@ def list_sessions(document_id: int) -> list[dict]:
     return rows
 
 
-def get_session(session_id: int) -> dict | None:
+def get_testrun(testrun_id: int) -> dict | None:
     conn = _connect()
-    cur = conn.execute("SELECT * FROM sessions WHERE id = ?", (session_id,))
+    cur = conn.execute("SELECT * FROM testruns WHERE id = ?", (testrun_id,))
     d = _fetchone_dict(cur)
     conn.close()
     if not d:
@@ -342,11 +380,11 @@ def get_session(session_id: int) -> dict | None:
     return d
 
 
-def get_session_by_number(document_id: int, session_number: int) -> dict | None:
+def get_testrun_by_number(document_id: int, testrun_number: int) -> dict | None:
     conn = _connect()
     cur = conn.execute(
-        "SELECT * FROM sessions WHERE document_id = ? AND session_number = ?",
-        (document_id, session_number),
+        "SELECT * FROM testruns WHERE document_id = ? AND testrun_number = ?",
+        (document_id, testrun_number),
     )
     d = _fetchone_dict(cur)
     conn.close()
@@ -356,10 +394,10 @@ def get_session_by_number(document_id: int, session_number: int) -> dict | None:
     return d
 
 
-def get_latest_session(document_id: int) -> dict | None:
+def get_latest_testrun(document_id: int) -> dict | None:
     conn = _connect()
     cur = conn.execute(
-        "SELECT * FROM sessions WHERE document_id = ? AND deleted_at IS NULL ORDER BY session_number DESC LIMIT 1",
+        "SELECT * FROM testruns WHERE document_id = ? AND deleted_at IS NULL ORDER BY testrun_number DESC LIMIT 1",
         (document_id,),
     )
     d = _fetchone_dict(cur)
@@ -370,20 +408,20 @@ def get_latest_session(document_id: int) -> dict | None:
     return d
 
 
-def update_session(
-    document_id: int, session_number: int, state: dict
+def update_testrun(
+    document_id: int, testrun_number: int, state: dict
 ) -> dict | None:
-    """Update an existing session's state in-place (for explicit re-saves)."""
+    """Update an existing testrun's state in-place (for explicit re-saves)."""
     now = _now()
     summary = _summarize_state(state)
     state_hash = _hash_state(state)
     state_json = json.dumps(state)
     conn = _connect()
     cur = conn.execute(
-        """UPDATE sessions
+        """UPDATE testruns
            SET state_json = ?, state_hash = ?, endpoint_count = ?,
                drift_count = ?, ok_count = ?, updated_at = ?
-           WHERE document_id = ? AND session_number = ? AND deleted_at IS NULL""",
+           WHERE document_id = ? AND testrun_number = ? AND deleted_at IS NULL""",
         (
             state_json,
             state_hash,
@@ -392,7 +430,7 @@ def update_session(
             summary["ok_count"],
             now,
             document_id,
-            session_number,
+            testrun_number,
         ),
     )
     if cur.rowcount == 0:
@@ -406,21 +444,21 @@ def update_session(
     conn.commit()
 
     cur2 = conn.execute(
-        """SELECT id, document_id, session_number, session_type,
+        """SELECT id, document_id, testrun_number, testrun_type,
                   endpoint_count, drift_count, ok_count, state_hash, created_at, updated_at
-           FROM sessions WHERE document_id = ? AND session_number = ?""",
-        (document_id, session_number),
+           FROM testruns WHERE document_id = ? AND testrun_number = ?""",
+        (document_id, testrun_number),
     )
-    session = _fetchone_dict(cur2)
+    testrun = _fetchone_dict(cur2)
     conn.close()
-    return session
+    return testrun
 
 
-def soft_delete_session(document_id: int, session_number: int) -> bool:
+def soft_delete_testrun(document_id: int, testrun_number: int) -> bool:
     conn = _connect()
     cur = conn.execute(
-        "UPDATE sessions SET deleted_at = ? WHERE document_id = ? AND session_number = ? AND deleted_at IS NULL",
-        (_now(), document_id, session_number),
+        "UPDATE testruns SET deleted_at = ? WHERE document_id = ? AND testrun_number = ? AND deleted_at IS NULL",
+        (_now(), document_id, testrun_number),
     )
     conn.commit()
     affected = cur.rowcount
@@ -434,31 +472,32 @@ def soft_delete_session(document_id: int, session_number: int) -> bool:
 def save(
     state: dict,
     document_id: int | None = None,
-    session_type: str = "save",
-    session_number: int | None = None,
+    testrun_type: str = "save",
+    testrun_number: int | None = None,
+    session_hash: str = None,
 ) -> dict:
     title = state.get("title") or "Untitled"
 
     if document_id is None:
-        doc = create_document(title)
+        doc = create_document(title, session_hash=session_hash)
     else:
         doc = get_document(document_id)
         if not doc:
-            doc = create_document(title)
+            doc = create_document(title, session_hash=session_hash)
         else:
             if title != doc["title"]:
                 update_document_title(doc["id"], title)
                 doc["title"] = title
 
-    # For explicit saves with an existing session, update in-place
-    if session_type == "save" and session_number:
-        updated = update_session(doc["id"], session_number, state)
+    # For explicit saves with an existing testrun, update in-place
+    if testrun_type == "save" and testrun_number:
+        updated = update_testrun(doc["id"], testrun_number, state)
         if updated:
-            return {"document": doc, "session": updated}
-        # Fall through to create_session if update failed (deleted/missing)
+            return {"document": doc, "testrun": updated}
+        # Fall through to create_testrun if update failed (deleted/missing)
 
-    session = create_session(doc["id"], state, session_type)
-    return {"document": doc, "session": session}
+    testrun = create_testrun(doc["id"], state, testrun_type)
+    return {"document": doc, "testrun": testrun}
 
 
 # Init on import

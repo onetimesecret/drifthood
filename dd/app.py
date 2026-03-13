@@ -12,6 +12,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
+from dd.auth import router as auth_router
 from dd.compare import router as compare_router
 from dd.documents import router as documents_router
 from dd.openapi import router as openapi_router
@@ -27,6 +28,7 @@ def create_app() -> FastAPI:
     )
 
     # ── API routers ──
+    app.include_router(auth_router)
     app.include_router(compare_router)
     app.include_router(documents_router)
     app.include_router(openapi_router)

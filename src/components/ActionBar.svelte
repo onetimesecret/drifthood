@@ -167,7 +167,7 @@
     const a = document.createElement('a');
     const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
     a.href = url;
-    a.download = `drift-session-${ts}.json`;
+    a.download = `drift-testrun-${ts}.json`;
     a.click();
     URL.revokeObjectURL(url);
     closeMenus();

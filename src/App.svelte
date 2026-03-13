@@ -1,4 +1,5 @@
 <script>
+  import TokenGate from './components/TokenGate.svelte';
   import Sidebar from './components/Sidebar.svelte';
   import HostConfig from './components/HostConfig.svelte';
   import IgnoreConfig from './components/IgnoreConfig.svelte';
@@ -9,7 +10,7 @@
 
   import { DD_VERSION } from '../lib/examples.js';
   import { stateFingerprint } from '../lib/state.js';
-  import { apiConfig, apiSave, apiCompare, apiListDocuments, apiGetDocument, apiGetSession, apiUpdateDocumentTitle } from '../lib/api.js';
+  import { apiConfig, apiSave, apiCompare, apiListDocuments, apiGetDocument, apiGetTestrun, apiUpdateDocumentTitle } from '../lib/api.js';
   import { toDiffPath } from '../lib/format.js';
   import { setNestedValue, flattenObj } from '../lib/params.js';
   import { session } from './stores/session.svelte.js';
@@ -75,7 +76,7 @@
   // ── Doc indicator ──
   let docIndicator = $derived(
     documents.currentDocumentId
-      ? `doc #${documents.currentDocumentId} / session #${documents.currentSessionNumber}`
+      ? `doc #${documents.currentDocumentId} / testrun #${documents.currentTestrunNumber}`
       : ''
   );
 
@@ -107,9 +108,9 @@
         const mostRecent = data.documents[0];
         try {
           const docData = await apiGetDocument(mostRecent.id);
-          if (docData.sessions?.length) {
-            const latest = docData.sessions[docData.sessions.length - 1];
-            await loadSavedSession(mostRecent.id, latest.session_number);
+          if (docData.testruns?.length) {
+            const latest = docData.testruns[docData.testruns.length - 1];
+            await loadSavedTestrun(mostRecent.id, latest.testrun_number);
             return;
           }
         } catch { /* fall through */ }
@@ -120,26 +121,26 @@
     addEndpoint();
   }
 
-  async function loadSavedSession(docId, sessionNumber) {
+  async function loadSavedTestrun(docId, testrunNumber) {
     try {
-      const data = await apiGetSession(docId, sessionNumber);
-      if (data.error || !data.session) {
-        showDropToast('Session not found: ' + (data.error || 'no session data'), true);
+      const data = await apiGetTestrun(docId, testrunNumber);
+      if (data.error || !data.testrun) {
+        showDropToast('Testrun not found: ' + (data.error || 'no testrun data'), true);
         return;
       }
-      const state = data.session.state;
+      const state = data.testrun.state;
       if (!state) {
-        showDropToast('Session has no state data', true);
+        showDropToast('Testrun has no state data', true);
         return;
       }
       restore(state);
-      // Set document tracking AFTER restore() so the stale sessionNumber
+      // Set document tracking AFTER restore() so the stale testrunNumber
       // stored inside the snapshot doesn't overwrite the actual values.
       documents.currentDocumentId = docId;
-      documents.currentSessionNumber = sessionNumber;
+      documents.currentTestrunNumber = testrunNumber;
       documents.lastSavedStateHash = stateFingerprint(state);
-      breadcrumbText = `doc #${docId} session #${sessionNumber}`;
-      showDropToast(`Loaded session #${sessionNumber}`, false);
+      breadcrumbText = `doc #${docId} testrun #${testrunNumber}`;
+      showDropToast(`Loaded testrun #${testrunNumber}`, false);
       startAutosave();
     } catch (err) {
       showDropToast('Load failed: ' + err.message, true);
@@ -147,25 +148,22 @@
   }
 
   // ── Save ──
-  async function saveSession() {
+  async function saveTestrun() {
     saveStatus = { text: 'Saving...', color: '', disabled: true };
     try {
       const state = snapshot();
-      const data = await apiSave(state, documents.currentDocumentId, 'save', documents.currentSessionNumber || null);
+      const data = await apiSave(state, documents.currentDocumentId, 'save', documents.currentTestrunNumber || null);
       if (data.ok) {
         documents.currentDocumentId = data.document.id;
-        if (data.session) {
-          documents.currentSessionNumber = data.session.session_number;
+        if (data.testrun) {
+          documents.currentTestrunNumber = data.testrun.testrun_number;
         }
         documents.lastSavedStateHash = stateFingerprint(state);
-        // Update breadcrumb to reflect current doc/session (task 6)
-        breadcrumbText = `doc #${documents.currentDocumentId} session #${documents.currentSessionNumber}`;
+        breadcrumbText = `doc #${documents.currentDocumentId} testrun #${documents.currentTestrunNumber}`;
         startAutosave();
         saveStatus = { text: 'Saved', color: 'var(--green)', disabled: true };
-        // Notify sidebar to refresh document list and session counts (tasks 2, 14)
         notifyDocumentsChanged();
-        // Toast feedback (task 10)
-        showDropToast(`Saved session #${documents.currentSessionNumber}`, false);
+        showDropToast(`Saved testrun #${documents.currentTestrunNumber}`, false);
       } else {
         saveStatus = { text: 'Error', color: 'var(--red)', disabled: true };
         showDropToast('Save failed', true);
@@ -222,11 +220,10 @@
         return;
       }
       documents.lastSavedStateHash = fp;
-      if (saveData.session) {
-        documents.currentSessionNumber = saveData.session.session_number;
-        breadcrumbText = `doc #${documents.currentDocumentId} session #${documents.currentSessionNumber}`;
+      if (saveData.testrun) {
+        documents.currentTestrunNumber = saveData.testrun.testrun_number;
+        breadcrumbText = `doc #${documents.currentDocumentId} testrun #${documents.currentTestrunNumber}`;
       }
-      // Notify sidebar so session counts update after autosave (tasks 2, 14)
       notifyDocumentsChanged();
       showAutoSaveToast();
     } catch {
@@ -312,7 +309,7 @@
       stopAutosave();
       restore(data);
       breadcrumbText = data.specSource || filename;
-      showDropToast('Loaded session: ' + filename, false);
+      showDropToast('Loaded testrun: ' + filename, false);
       startAutosave();
       return;
     }
@@ -321,7 +318,7 @@
       showDropToast('Loading OpenAPI spec: ' + filename, false);
       return;
     }
-    showDropToast('Unrecognized JSON. Expected a session export or OpenAPI spec.', true);
+    showDropToast('Unrecognized JSON. Expected a testrun export or OpenAPI spec.', true);
   }
 
   function handleDropHtml(text, filename) {
@@ -442,6 +439,7 @@
   }
 </script>
 
+<TokenGate>
 <div class="flex min-h-screen -m-5">
   <Sidebar onBreadcrumb={(text) => breadcrumbText = text} />
 
@@ -452,11 +450,11 @@
       <button
         class="btn-ghost ml-auto"
         style={saveStatus.color ? `color:${saveStatus.color}` : ''}
-        onclick={saveSession}
+        onclick={saveTestrun}
         disabled={saveStatus.disabled}
       >{saveStatus.text}</button>
       {#if docIndicator}
-        <span class="text-[0.7em] text-text-dim font-mono" title="Save updates the current session. Autosave creates new snapshots when state changes.">{docIndicator}</span>
+        <span class="text-[0.7em] text-text-dim font-mono" title="Save updates the current testrun. Autosave creates new snapshots when state changes.">{docIndicator}</span>
       {/if}
     </div>
 
@@ -465,14 +463,14 @@
       <input
         class="bg-transparent border-none text-text-primary text-[1.1em] font-semibold font-[inherit] w-full px-0 py-1 outline-none border-b border-b-transparent focus:border-b-accent placeholder:text-text-dim placeholder:font-normal"
         type="text"
-        placeholder="Session title (optional)"
+        placeholder="Testrun title (optional)"
         bind:value={session.title}
         onfocus={onTitleFocus}
         onblur={onTitleBlur}
       />
       <textarea
         class="bg-transparent border-none text-text-dim text-[0.8em] font-[inherit] w-full px-0 py-0.5 outline-none resize-none border-b border-b-transparent focus:border-b-edge focus:text-text-primary leading-snug placeholder:text-text-dim"
-        placeholder="Notes / context for this comparison session"
+        placeholder="Notes / context for this comparison testrun"
         rows="1"
         bind:value={session.memo}
       ></textarea>
@@ -545,7 +543,7 @@
     <div class="border-2 border-dashed border-accent rounded-2xl px-16 py-12 text-center text-accent font-mono">
       <div class="text-[2.5em] mb-3">&#128230;</div>
       <div class="text-[1em] font-semibold">Drop to import</div>
-      <div class="text-[0.75em] text-text-dim mt-2">.json (session) or .html (snapshot)</div>
+      <div class="text-[0.75em] text-text-dim mt-2">.json (testrun) or .html (snapshot)</div>
     </div>
   </div>
 {/if}
@@ -554,3 +552,4 @@
 {#if toast.visible}
   <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] bg-surface border rounded-lg px-5 py-2.5 text-[0.85em] font-mono shadow-[0_8px_24px_rgba(0,0,0,0.4)] {toast.cls === 'error' ? 'border-red text-red' : toast.cls === 'ok' ? 'border-green text-green' : 'border-text-dim text-text-dim opacity-80 text-[0.78em]'}">{toast.text}</div>
 {/if}
+</TokenGate>

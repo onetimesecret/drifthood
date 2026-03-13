@@ -1,5 +1,5 @@
 <script>
-  import { apiListDocuments, apiGetSessions, apiGetSession, apiDeleteSession } from '../../lib/api.js';
+  import { apiListDocuments, apiGetTestruns, apiGetTestrun, apiDeleteTestrun } from '../../lib/api.js';
   import { relativeTime, driftIndicator } from '../../lib/format.js';
   import { documents, resetDocuments } from '../stores/documents.svelte.js';
   import { endpoints, addEndpoint, clearEndpoints, resetIdCounter } from '../stores/endpoints.svelte.js';
@@ -9,7 +9,7 @@
   import { stateFingerprint } from '../../lib/state.js';
 
   let { onBreadcrumb } = $props();
-  let sessionsByDoc = $state({});
+  let testrunsByDoc = $state({});
 
   // Fetch documents on mount and whenever refreshVersion changes (e.g. after save)
   $effect(() => {
@@ -40,7 +40,7 @@
     } else {
       expanded.add(docId);
       ui.expandedDocs = new Set(expanded);
-      loadSessionsForDoc(docId);
+      loadTestrunsForDoc(docId);
     }
   }
 
@@ -48,14 +48,14 @@
     return docId === documents.currentDocumentId || ui.expandedDocs.has(docId);
   }
 
-  async function loadSessionsForDoc(docId) {
+  async function loadTestrunsForDoc(docId) {
     try {
-      const data = await apiGetSessions(docId);
-      const sessions = data.sessions || [];
+      const data = await apiGetTestruns(docId);
+      const testruns = data.testruns || [];
       // Reverse chronological
-      sessionsByDoc[docId] = [...sessions].reverse();
+      testrunsByDoc[docId] = [...testruns].reverse();
     } catch {
-      sessionsByDoc[docId] = null;
+      testrunsByDoc[docId] = null;
     }
   }
 
@@ -64,37 +64,37 @@
     const _v = documents.refreshVersion;
     for (const d of documents.list) {
       if (isDocExpanded(d.id)) {
-        // Re-fetch sessions whenever refresh is triggered (not just when missing)
-        loadSessionsForDoc(d.id);
+        // Re-fetch testruns whenever refresh is triggered (not just when missing)
+        loadTestrunsForDoc(d.id);
       }
     }
   });
 
-  async function loadSession(docId, sessionNumber) {
+  async function loadTestrun(docId, testrunNumber) {
     try {
-      const data = await apiGetSession(docId, sessionNumber);
-      if (data.error || !data.session) return;
-      const state = data.session.state;
+      const data = await apiGetTestrun(docId, testrunNumber);
+      if (data.error || !data.testrun) return;
+      const state = data.testrun.state;
       if (!state) return;
       restore(state);
       documents.currentDocumentId = docId;
-      documents.currentSessionNumber = sessionNumber;
+      documents.currentTestrunNumber = testrunNumber;
       documents.lastSavedStateHash = stateFingerprint(state);
-      onBreadcrumb?.(`doc #${docId} session #${sessionNumber}`);
+      onBreadcrumb?.(`doc #${docId} testrun #${testrunNumber}`);
     } catch {
       // Silent failure
     }
   }
 
-  async function deleteSessionClick(docId, sessionNumber, event) {
+  async function deleteTestrunClick(docId, testrunNumber, event) {
     event.stopPropagation();
     try {
-      const data = await apiDeleteSession(docId, sessionNumber);
+      const data = await apiDeleteTestrun(docId, testrunNumber);
       if (data.ok) {
-        if (docId === documents.currentDocumentId && sessionNumber === documents.currentSessionNumber) {
-          documents.currentSessionNumber = 0;
+        if (docId === documents.currentDocumentId && testrunNumber === documents.currentTestrunNumber) {
+          documents.currentTestrunNumber = 0;
         }
-        await loadSessionsForDoc(docId);
+        await loadTestrunsForDoc(docId);
         await refreshSidebar();
       }
     } catch {
@@ -136,28 +136,28 @@
           >
             <span class="chevron text-[0.7em]" class:open={expanded}>&#9654;</span>
             <span class="flex-1 whitespace-nowrap overflow-hidden text-ellipsis font-medium">{doc.title || 'Untitled'}</span>
-            <span class="text-[0.8em] text-text-dim font-mono">{doc.session_count}</span>
+            <span class="text-[0.8em] text-text-dim font-mono">{doc.testrun_count}</span>
           </button>
 
           <div class="toggle-block pb-1" class:open={expanded}>
-            {#if sessionsByDoc[doc.id] === null}
+            {#if testrunsByDoc[doc.id] === null}
               <div class="px-7 py-1 text-[0.75em] text-red">Error</div>
-            {:else if sessionsByDoc[doc.id]?.length === 0}
-              <div class="px-7 py-1 text-[0.75em] text-text-dim">No sessions</div>
-            {:else if sessionsByDoc[doc.id]}
-              {#each sessionsByDoc[doc.id] as s}
-                {@const isActive = doc.id === documents.currentDocumentId && s.session_number === documents.currentSessionNumber}
+            {:else if testrunsByDoc[doc.id]?.length === 0}
+              <div class="px-7 py-1 text-[0.75em] text-text-dim">No testruns</div>
+            {:else if testrunsByDoc[doc.id]}
+              {#each testrunsByDoc[doc.id] as s}
+                {@const isActive = doc.id === documents.currentDocumentId && s.testrun_number === documents.currentTestrunNumber}
                 {@const di = driftIndicator(s)}
                 <div
                   role="button"
                   tabindex="0"
-                  class="group/session flex items-center gap-1.5 py-1 pl-7 pr-3.5 cursor-pointer text-[0.75em] font-mono text-text-dim hover:bg-white/[0.03] hover:text-text-primary {isActive ? 'text-accent' : ''}"
-                  onclick={() => loadSession(doc.id, s.session_number)}
-                  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadSession(doc.id, s.session_number); } }}
+                  class="group/testrun flex items-center gap-1.5 py-1 pl-7 pr-3.5 cursor-pointer text-[0.75em] font-mono text-text-dim hover:bg-white/[0.03] hover:text-text-primary {isActive ? 'text-accent' : ''}"
+                  onclick={() => loadTestrun(doc.id, s.testrun_number)}
+                  onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadTestrun(doc.id, s.testrun_number); } }}
                 >
-                  <span class="min-w-[20px]">#{s.session_number}</span>
+                  <span class="min-w-[20px]">#{s.testrun_number}</span>
                   <span class="text-[0.9em]" style="color:{di.color}" title={di.title}>{@html di.symbol}</span>
-                  {#if s.session_type === 'autosave'}
+                  {#if s.testrun_type === 'autosave'}
                     <span title="autosave" class="opacity-50">&#8635;</span>
                   {:else}
                     <span title="saved" class="text-accent">&#9646;</span>
@@ -167,9 +167,9 @@
                   {/if}
                   <span class="flex-1 text-right">{relativeTime(s.created_at)}</span>
                   <button
-                    class="opacity-0 group-hover/session:opacity-60 bg-transparent border-none text-text-dim cursor-pointer text-[0.9em] px-0.5 rounded-sm shrink-0 hover:opacity-100 hover:text-red"
-                    onclick={(e) => deleteSessionClick(doc.id, s.session_number, e)}
-                    title="Delete session"
+                    class="opacity-0 group-hover/testrun:opacity-60 bg-transparent border-none text-text-dim cursor-pointer text-[0.9em] px-0.5 rounded-sm shrink-0 hover:opacity-100 hover:text-red"
+                    onclick={(e) => deleteTestrunClick(doc.id, s.testrun_number, e)}
+                    title="Delete testrun"
                   >&times;</button>
                 </div>
               {/each}

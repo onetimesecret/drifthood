@@ -1,7 +1,7 @@
-// Svelte 5 runes — reactive state for document/session tracking
+// Svelte 5 runes — reactive state for document/testrun tracking
 export const documents = $state({
   currentDocumentId: null,
-  currentSessionNumber: 0,
+  currentTestrunNumber: 0,
   lastSavedStateHash: null,
   list: [],                 // cached document list from API
   refreshVersion: 0,        // bump to trigger sidebar re-fetch
@@ -14,7 +14,7 @@ export function notifyDocumentsChanged() {
 
 export function resetDocuments() {
   documents.currentDocumentId = null;
-  documents.currentSessionNumber = 0;
+  documents.currentTestrunNumber = 0;
   documents.lastSavedStateHash = null;
   documents.list = [];
   // Note: don't reset refreshVersion — keep the counter monotonic
