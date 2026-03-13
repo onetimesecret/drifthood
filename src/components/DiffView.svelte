@@ -1,7 +1,7 @@
 <script>
   import { parseDiff, jsonSummary } from '../../lib/diff.js';
   import { prettifyPath } from '../../lib/format.js';
-  import { buildDriftSummary } from '../../lib/export.js';
+  import { buildDriftSummary, buildCurlCommand } from '../../lib/export.js';
   import { session, getEnvA, getEnvB } from '../stores/session.svelte.js';
 
   let { result, endpointId } = $props();
@@ -23,6 +23,27 @@
 
   let copyLabel = $state('Copy summary');
   let copyClass = $state('');
+  let curlLabelA = $state('Copy curl A');
+  let curlClassA = $state('');
+  let curlLabelB = $state('Copy curl B');
+  let curlClassB = $state('');
+
+  function copyCurl(side) {
+    if (!result) return;
+    const cmd = buildCurlCommand(result, side);
+    if (!cmd) return;
+    navigator.clipboard.writeText(cmd).then(() => {
+      if (side === 'a') {
+        curlLabelA = 'Copied';
+        curlClassA = 'copied';
+        setTimeout(() => { curlLabelA = 'Copy curl A'; curlClassA = ''; }, 1500);
+      } else {
+        curlLabelB = 'Copied';
+        curlClassB = 'copied';
+        setTimeout(() => { curlLabelB = 'Copy curl B'; curlClassB = ''; }, 1500);
+      }
+    });
+  }
 
   function copySummary() {
     if (!result?.has_drift) return;
@@ -57,6 +78,8 @@
         {sec.label}
         {#if secIdx === 0}
           {' '}<button class="text-[0.75em] text-yellow cursor-pointer bg-transparent border border-yellow px-2 py-0.5 rounded ml-2 align-middle font-normal normal-case tracking-normal hover:bg-yellow/15 {copyClass === 'copied' ? 'text-green border-green' : ''}" onclick={(e) => { e.stopPropagation(); copySummary(); }}>{copyLabel}</button>
+          {' '}<button class="text-[0.75em] text-cyan cursor-pointer bg-transparent border border-cyan px-2 py-0.5 rounded ml-1 align-middle font-normal normal-case tracking-normal hover:bg-cyan/15 {curlClassA === 'copied' ? 'text-green border-green' : ''}" onclick={(e) => { e.stopPropagation(); copyCurl('a'); }}>{curlLabelA}</button>
+          {' '}<button class="text-[0.75em] text-cyan cursor-pointer bg-transparent border border-cyan px-2 py-0.5 rounded ml-1 align-middle font-normal normal-case tracking-normal hover:bg-cyan/15 {curlClassB === 'copied' ? 'text-green border-green' : ''}" onclick={(e) => { e.stopPropagation(); copyCurl('b'); }}>{curlLabelB}</button>
           {#if ignoredCount > 0}
             {' '}<span class="text-[0.7em] text-text-dim font-mono px-1.5 py-0.5 rounded bg-text-dim/10 border border-edge ml-2 cursor-help" title={ignoredTooltip}>{ignoredCount} fields ignored</span>
           {/if}
@@ -89,6 +112,8 @@
 
   {#if sections.length === 0}
     <button class="text-[0.75em] text-yellow cursor-pointer bg-transparent border border-yellow px-2 py-0.5 rounded ml-2 align-middle font-normal normal-case tracking-normal hover:bg-yellow/15 {copyClass === 'copied' ? 'text-green border-green' : ''}" onclick={(e) => { e.stopPropagation(); copySummary(); }}>{copyLabel}</button>
+    {' '}<button class="text-[0.75em] text-cyan cursor-pointer bg-transparent border border-cyan px-2 py-0.5 rounded ml-1 align-middle font-normal normal-case tracking-normal hover:bg-cyan/15 {curlClassA === 'copied' ? 'text-green border-green' : ''}" onclick={(e) => { e.stopPropagation(); copyCurl('a'); }}>{curlLabelA}</button>
+    {' '}<button class="text-[0.75em] text-cyan cursor-pointer bg-transparent border border-cyan px-2 py-0.5 rounded ml-1 align-middle font-normal normal-case tracking-normal hover:bg-cyan/15 {curlClassB === 'copied' ? 'text-green border-green' : ''}" onclick={(e) => { e.stopPropagation(); copyCurl('b'); }}>{curlLabelB}</button>
     {#if ignoredCount > 0}
       {' '}<span class="text-[0.7em] text-text-dim font-mono px-1.5 py-0.5 rounded bg-text-dim/10 border border-edge ml-2 cursor-help" title={ignoredTooltip}>{ignoredCount} fields ignored</span>
     {/if}

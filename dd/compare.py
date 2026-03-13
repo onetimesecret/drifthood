@@ -104,6 +104,11 @@ def hit(
             resp_body = r.json()
         else:
             resp_body = r.text
+        # Capture request body for curl reproduction
+        req_body = r.request.body
+        if isinstance(req_body, bytes):
+            req_body = req_body.decode("utf-8", errors="replace")
+
         return {
             "status": r.status_code,
             "headers": dict(r.headers),
@@ -112,6 +117,7 @@ def hit(
             "elapsed_ms": int(r.elapsed.total_seconds() * 1000),
             "request_headers": dict(r.request.headers),
             "request_url": r.request.url,
+            "request_body": req_body,
         }
     except Exception as e:
         return {
@@ -122,6 +128,7 @@ def hit(
             "elapsed_ms": None,
             "request_headers": {},
             "request_url": None,
+            "request_body": None,
         }
 
 

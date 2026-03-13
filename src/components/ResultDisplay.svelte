@@ -18,9 +18,11 @@
   let respHeadersVisible = $state(false);
   let copyMenuOpen = $state(false);
 
-  // Auto-expand on drift
+  // Auto-expand when a run completes (any result, not just drift)
+  let lastResultRef = null;
   $effect(() => {
-    if (r?.has_drift) {
+    if (r && r !== lastResultRef) {
+      lastResultRef = r;
       expanded = true;
     }
   });

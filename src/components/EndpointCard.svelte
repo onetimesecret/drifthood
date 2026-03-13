@@ -238,12 +238,12 @@
     <button class="bg-transparent border-none text-text-dim cursor-pointer text-[1.1em] px-1.5 py-0.5 rounded hover:text-red hover:bg-red/10" onclick={remove} title="Remove">&times;</button>
   </div>
 
-  {#if showKvPairs}
-    <KvPairs {endpoint} type={kvType} />
-  {/if}
-
   {#if showFields}
     <FieldInputs {endpoint} />
+  {/if}
+
+  {#if showKvPairs}
+    <KvPairs {endpoint} type={kvType} />
   {/if}
 
   {#if hasResult}
