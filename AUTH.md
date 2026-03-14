@@ -2,7 +2,19 @@
 
 ## Core idea
 
-The token is the identity. No usernames, no passwords, no user table. A `secrets.token_urlsafe(32)` string (256 bits of entropy) is the credential, the partition key, and the recovery mechanism. Lose it, lose your data. Save it, reconnect from anywhere.
+Two-part session identity: a **token** (the secret) and an **extid** (the public name).
+
+The token is the credential — a `secrets.token_urlsafe(32)` string (256 bits of entropy). It authenticates API calls via `Authorization: Bearer` headers. The server never stores the raw token; only its SHA256 hash touches the database.
+
+The extid is a UUIDv7 that identifies the session in URLs, UI, and API responses. It's not a credential — knowing the extid does not grant access. It exists so the token never appears in the URL bar, browser history, or shared links.
+
+No usernames, no passwords, no user table. Lose the token, lose your data. Save it, reconnect from anywhere.
+
+## Security posture
+
+This is a testing tool. The `localStorage` persistence of the auth token (via "Remember me") is a deliberate convenience tradeoff — the operator chooses whether to point the tool at production targets, and accepts the browser-storage risk that comes with it.
+
+The extid/token split prevents casual leakage of the credential through URLs (copy-pasting, screen sharing, browser history), but does not attempt to defend against a compromised browser environment. If an attacker has access to your browser storage, both the token and extid are already exposed.
 
 ## Architecture decision: single DB with partition column
 
@@ -41,28 +53,62 @@ This remains a viable path if stronger isolation guarantees are needed. The `_co
 ## Token lifecycle
 
 ```
-POST /api/auth/token       -> { token }        # mint a new token
-GET  /api/auth/validate    -> { valid, documentCount }  # check via Bearer header
+POST /api/auth/token       -> { token, extid }        # mint a new token + session
+GET  /api/auth/validate    -> { valid, documentCount, extid }  # check via Bearer header
 ```
 
-1. Client generates token via `POST /api/auth/token`
-2. Server returns raw token. Never stores it. Only the `SHA256` hash touches the DB.
-3. Client stores token in `sessionStorage` (default) or `localStorage` ("Remember me")
-4. Every request sends `Authorization: Bearer <token>`
-5. Server hashes it, uses hash to scope all document queries
-6. User can re-enter a saved token to reconnect — the hash is deterministic
+1. Client calls `POST /api/auth/token`
+2. Server generates token, hashes it, creates a `sessions` row with a UUIDv7 extid
+3. Server returns `{ token, extid }` — the token is shown to the user once
+4. Client stores the token in `sessionStorage` (default) or `localStorage` ("Remember me")
+5. Client stores the extid separately and puts it in the URL: `/s/{extid}`
+6. Every API request sends `Authorization: Bearer <token>`
+7. Server hashes it, uses the hash to scope all document queries
+8. User can re-enter a saved token to reconnect — the hash is deterministic, and the server returns the associated extid
 
-Browser storage key: `dd_token`
+Browser storage keys: `dd_token` (credential), `dd_extid` (URL identifier)
+
+## Extid convention
+
+All database entities use UUIDv7 external identifiers. Integer primary keys, foreign keys, and raw tokens never cross the API boundary — they stay internal to the Python backend.
+
+| Entity   | Internal key          | External reference |
+|----------|-----------------------|--------------------|
+| Session  | `sessions.id`        | `sessions.extid`   |
+| Document | `documents.id`       | `documents.extid`  |
+| Testrun  | `testruns.id`        | `testruns.extid`   |
+
+API routes use extids in paths: `/api/documents/{doc_extid}/testruns/{testrun_extid}`
+
+UUIDv7 provides time-ordering (millisecond-precision timestamp in the high bits) which makes them naturally sortable and indexable without sacrificing uniqueness.
+
+## URL structure
+
+```
+/                       Landing page (unauthenticated)
+/s/{session_extid}      Authenticated session (SPA served if extid is valid, 404 otherwise)
+/s/{session_extid}?v=   Vibe param for progressive disclosure (new, fresh)
+/e/{environment_extid}  Environment detail page (requires auth in storage)
+```
+
+The `/s/` route validates the extid server-side: non-UUID values and unknown extids return 404. This prevents the SPA from loading for garbage paths.
 
 ## Data model
 
 ```
+sessions
+├── extid TEXT UNIQUE             ← public session identifier (UUIDv7)
+├── session_hash TEXT (indexed)   ← SHA256(token), partition key
+├── created_at
+
 documents
-├── session_hash TEXT (nullable, indexed) ← partition key
+├── extid TEXT UNIQUE             ← public document identifier (UUIDv7)
+├── session_hash TEXT (indexed)   ← partition key
 ├── id, title, created_at, updated_at
 
 testruns  (formerly "sessions")
-├── document_id → documents(id)
+├── extid TEXT UNIQUE             ← public testrun identifier (UUIDv7)
+├── document_id → documents(id)  ← internal FK, never exposed
 ├── testrun_number, testrun_type ('save'|'autosave')
 ├── state_json, state_hash, endpoint/drift/ok counts
 ├── UNIQUE(document_id, testrun_number)
@@ -75,24 +121,26 @@ Pre-existing documents (before auth was added) have `session_hash = NULL` and re
 "Session" was overloaded — it meant both "numbered snapshot within a document" and "a user's browsing context." Now:
 
 - **testrun** = a numbered snapshot within a document (the old "session")
-- **session** = the token-bound browser session (traditional meaning)
+- **session** = the token-bound browser session (traditional meaning), with a `sessions` table
 
 The `session.svelte.js` store keeps its name — it holds per-browser-session config (hosts, auth credentials, ignore paths), which is now the correct semantic.
 
 ## Frontend gate
 
 `TokenGate.svelte` wraps the entire app. Without a token, it renders a landing page:
-- "Start fresh" — mints a token, displays it once, warns to save it
-- "I have a token" — paste input, validates against `/api/auth/validate`
+- "Start fresh" — mints a token + extid, displays the token once, warns to save it
+- "I have a token" — paste input, validates via `/api/auth/validate`, retrieves the extid
 - "Remember me" checkbox — localStorage vs sessionStorage
 
-When authenticated, a token bar at the top shows the masked token with copy + sign out.
+When authenticated, a token bar at the top shows the masked token with copy + sign out. The URL shows the session extid, never the raw token.
 
 ## Migration
 
-`init_db()` handles both directions automatically on startup:
-- Detects old `sessions` table → renames to `testruns`, renames columns
+`init_db()` handles schema evolution automatically on startup:
+- Detects old `sessions` table (with `state_json`) → renames to `testruns`, renames columns
+- Creates new `sessions` table (for token identity) if missing
 - Adds `session_hash` column to `documents` if missing
+- Adds `extid` column to `documents` and `testruns` if missing, backfills with UUIDv7
 
 ## Turso migration path
 
