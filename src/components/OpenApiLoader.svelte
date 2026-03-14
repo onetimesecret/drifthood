@@ -77,7 +77,7 @@
     opChecked = opChecked.map(ops => ops.map(() => checked));
   }
 
-  function loadSelectedToEndpoints() {
+  async function loadSelectedToEndpoints() {
     if (!parsedSpec) return;
     const sel = [];
     parsedSpec.groups.forEach((g, gi) => {
@@ -88,7 +88,7 @@
       });
     });
     if (!sel.length) return;
-    clearEndpoints();
+    await clearEndpoints();
     for (const op of sel) {
       let body = op.body || '';
       if (op.content_type === 'application/json' && body && body.includes('=')) {
@@ -105,7 +105,7 @@
           // keep original body
         }
       }
-      addEndpoint({
+      await addEndpoint({
         method: op.method,
         label: op.label,
         path: op.path,

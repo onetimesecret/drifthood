@@ -7,7 +7,7 @@
   import { endpoints, addEndpoint, clearEndpoints, clearResults } from '../stores/endpoints.svelte.js';
   import { session, getEnvA, getEnvB } from '../stores/session.svelte.js';
   import { ui } from '../stores/ui.svelte.js';
-  import { snapshot, restore } from '../stores/snapshot.js';
+  import { snapshotLegacy, restore } from '../stores/snapshot.js';
 
   // Local dropdown state
   let openMenu = $state(null); // 'examples' | 'import' | 'export' | null
@@ -44,10 +44,10 @@
     addEndpoint({});
   }
 
-  function loadExampleSet(name) {
-    clearEndpoints();
+  async function loadExampleSet(name) {
+    await clearEndpoints();
     for (const r of (EXAMPLES[name] || [])) {
-      addEndpoint({ method: r.m, label: r.l, path: r.p, body: r.b, contentType: r.ct });
+      await addEndpoint({ method: r.m, label: r.l, path: r.p, body: r.b, contentType: r.ct });
     }
     closeMenus();
   }
@@ -157,7 +157,7 @@
 
   // Export JSON
   function exportJson() {
-    const state = snapshot();
+    const state = snapshotLegacy();
     const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -171,7 +171,7 @@
 
   // Export HTML (simplified — embeds snapshot as DD_SNAPSHOT)
   function exportHtml() {
-    const state = snapshot();
+    const state = snapshotLegacy();
     const src = state.title || state.specSource || 'manual';
     const ts = new Date().toISOString().slice(0, 10);
     const html = `<!DOCTYPE html>
@@ -215,11 +215,11 @@
     e.target.value = '';
   }
 
-  function importJson(text, filename) {
+  async function importJson(text, filename) {
     try {
       const data = JSON.parse(text);
       if (data.endpoints && Array.isArray(data.endpoints)) {
-        restore(data);
+        await restore(data);
       } else if (data.openapi || data.swagger || data.paths) {
         // OpenAPI spec — open the modal
         ui.activeModal = 'openapi';
@@ -230,13 +230,13 @@
     }
   }
 
-  function importHtml(text) {
+  async function importHtml(text) {
     const match = text.match(/var\s+DD_SNAPSHOT\s*=\s*(\{[\s\S]*?\});\s*<\/script>/);
     if (!match) return;
     try {
       const snap = JSON.parse(match[1]);
       if (snap.endpoints && Array.isArray(snap.endpoints)) {
-        restore(snap);
+        await restore(snap);
       }
     } catch (err) {
       console.error('Failed to parse HTML snapshot:', err);

@@ -7,7 +7,7 @@ All external references use UUIDv7 extids. Integer primary keys
 and foreign keys are stripped from API responses.
 """
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 import dd.store as store
 from dd.auth import get_session_hash
@@ -35,7 +35,10 @@ def _ext_doc_list(doc):
 async def save_testrun(payload: dict, request: Request):
     """Save current state as a new testrun within a document.
 
-    Payload: {state: {...}, documentExtid: str|null, testrunType: "save"|"autosave", testrunExtid: str|null}
+    Payload: {state: {...}, documentExtid: str|null, testrunType: "save"|"autosave",
+              testrunExtid: str|null,
+              blobHash: str|null, encryptedBlob: str|null, blobIv: str|null,
+              endpointCount: int|null, driftCount: int|null, okCount: int|null}
     - If documentExtid is null: creates a new document + first testrun.
     - If documentExtid is set: appends a new testrun to that document.
 
@@ -46,12 +49,24 @@ async def save_testrun(payload: dict, request: Request):
     document_extid = payload.get("documentExtid")
     testrun_type = payload.get("testrunType", "save")
     testrun_extid = payload.get("testrunExtid")
+    blob_hash = payload.get("blobHash")
+    encrypted_blob = payload.get("encryptedBlob")
+    blob_iv = payload.get("blobIv")
+    endpoint_count = payload.get("endpointCount")
+    drift_count = payload.get("driftCount")
+    ok_count = payload.get("okCount")
     result = store.save(
         state,
         document_extid=document_extid,
         testrun_type=testrun_type,
         testrun_extid=testrun_extid,
         session_hash=session_hash,
+        blob_hash=blob_hash,
+        encrypted_blob=encrypted_blob,
+        blob_iv=blob_iv,
+        endpoint_count=endpoint_count,
+        drift_count=drift_count,
+        ok_count=ok_count,
     )
     skipped = result.get("testrun", {}).get("skipped", False)
     if skipped:
@@ -72,10 +87,11 @@ async def list_documents(request: Request):
 
 
 @router.get("/api/documents/{doc_extid}")
-async def get_document(doc_extid: str):
+async def get_document(doc_extid: str, request: Request):
+    session_hash = get_session_hash(request)
     doc = store.get_document_by_extid(doc_extid)
-    if not doc:
-        return {"error": "Document not found"}
+    if not doc or doc.get("session_hash") != session_hash:
+        raise HTTPException(status_code=404, detail="Document not found")
     testruns = store.list_testruns(doc["id"])
     return {
         "document": _ext_doc(doc),
@@ -84,11 +100,12 @@ async def get_document(doc_extid: str):
 
 
 @router.patch("/api/documents/{doc_extid}")
-async def update_document(doc_extid: str, payload: dict):
+async def update_document(doc_extid: str, payload: dict, request: Request):
     """Update a document's title."""
+    session_hash = get_session_hash(request)
     doc = store.get_document_by_extid(doc_extid)
-    if not doc:
-        return {"error": "Document not found"}
+    if not doc or doc.get("session_hash") != session_hash:
+        raise HTTPException(status_code=404, detail="Document not found")
     title = payload.get("title")
     if title is not None:
         store.update_document_title(doc["id"], title)
@@ -97,28 +114,36 @@ async def update_document(doc_extid: str, payload: dict):
 
 
 @router.get("/api/documents/{doc_extid}/testruns")
-async def list_testruns(doc_extid: str):
+async def list_testruns(doc_extid: str, request: Request):
+    session_hash = get_session_hash(request)
     doc = store.get_document_by_extid(doc_extid)
-    if not doc:
-        return {"error": "Document not found", "testruns": []}
+    if not doc or doc.get("session_hash") != session_hash:
+        raise HTTPException(status_code=404, detail="Document not found")
     testruns = store.list_testruns(doc["id"])
     return {"testruns": [_ext_testrun(t) for t in testruns]}
 
 
 @router.get("/api/documents/{doc_extid}/testruns/{testrun_extid}")
-async def get_testrun(doc_extid: str, testrun_extid: str):
-    """Get a specific testrun by extid.
-    Returns the full state for that testrun."""
+async def get_testrun(doc_extid: str, testrun_extid: str, request: Request):
+    """Get a specific testrun by extid."""
+    session_hash = get_session_hash(request)
+    doc = store.get_document_by_extid(doc_extid)
+    if not doc or doc.get("session_hash") != session_hash:
+        raise HTTPException(status_code=404, detail="Document not found")
     testrun = store.get_testrun_by_extid(testrun_extid)
     if not testrun:
-        return {"error": "Testrun not found"}
+        raise HTTPException(status_code=404, detail="Testrun not found")
     return {"testrun": _ext_testrun(testrun)}
 
 
 @router.delete("/api/documents/{doc_extid}/testruns/{testrun_extid}")
-async def delete_testrun(doc_extid: str, testrun_extid: str):
+async def delete_testrun(doc_extid: str, testrun_extid: str, request: Request):
     """Soft-delete a testrun."""
+    session_hash = get_session_hash(request)
+    doc = store.get_document_by_extid(doc_extid)
+    if not doc or doc.get("session_hash") != session_hash:
+        raise HTTPException(status_code=404, detail="Document not found")
     ok = store.soft_delete_testrun_by_extid(testrun_extid)
     if not ok:
-        return {"ok": False, "error": "Testrun not found or already deleted"}
+        raise HTTPException(status_code=404, detail="Testrun not found or already deleted")
     return {"ok": True}

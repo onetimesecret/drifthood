@@ -1,14 +1,58 @@
-import { session, resetSession, createEnvironment } from './session.svelte.js';
-import { endpoints, addEndpoint, clearEndpoints, resetIdCounter } from './endpoints.svelte.js';
+import { session, resetSession } from './session.svelte.js';
+import { endpoints, addEndpoint, clearEndpoints } from './endpoints.svelte.js';
 import { ui } from './ui.svelte.js';
 import { documents } from './documents.svelte.js';
 
 import { DD_VERSION } from '../../lib/examples.js';
 
 /**
- * Serialize current state to a plain object suitable for JSON.stringify.
+ * Serialize current state into manifest (cleartext) + sensitive (encrypted).
+ *
+ * The manifest contains only entity references and non-sensitive metadata.
+ * It is stored in state_json on the server and is queryable.
+ *
+ * The sensitive object contains credentials, results, UI config, and
+ * anything that should be encrypted client-side before storage.
  */
 export function snapshot() {
+  const manifest = {
+    version: DD_VERSION,
+    savedAt: new Date().toISOString(),
+    documentExtid: documents.currentDocumentExtid,
+    testrunExtid: documents.currentTestrunExtid,
+    testrunNumber: documents.currentTestrunNumber,
+    // Title lives in manifest for document naming (non-sensitive metadata)
+    title: session.title,
+    // References (clear, in manifest)
+    environment_extids: session.environments.map(e => e.extid),
+    endpoint_extids: endpoints.map(e => e.extid),
+    selectedA: session.selectedA,
+    selectedB: session.selectedB,
+  };
+
+  const sensitive = {
+    title: session.title,
+    memo: session.memo,
+    specSource: session.specSource,
+    ignorePaths: [...session.ignorePaths],
+    filter: ui.filter,
+    ignoreOpen: ui.ignoreOpen,
+    endpoint_results: endpoints.map(e => ({
+      extid: e.extid,
+      state: e.state,
+      result: e.result ?? null,
+    })),
+  };
+
+  return { manifest, sensitive };
+}
+
+/**
+ * Produce a legacy-format snapshot (flat object with everything inline).
+ * Used for drag-and-drop JSON export and HTML snapshot embedding where
+ * the full state needs to be self-contained in a single object.
+ */
+export function snapshotLegacy() {
   return {
     version: DD_VERSION,
     savedAt: new Date().toISOString(),
@@ -18,18 +62,19 @@ export function snapshot() {
     title: session.title,
     memo: session.memo,
     environments: session.environments.map(env => ({
-      id: env.id,
+      extid: env.extid,
       name: env.name,
       baseUrl: env.baseUrl,
       auth: env.auth,
       memo: env.memo,
-      metadata: { ...env.metadata },
+      metadata: { ...(env.metadata || {}) },
     })),
     selectedA: session.selectedA,
     selectedB: session.selectedB,
     specSource: session.specSource,
     ignorePaths: [...session.ignorePaths],
     endpoints: endpoints.map(ep => ({
+      extid: ep.extid,
       method: ep.method,
       label: ep.label,
       path: ep.path,
@@ -48,33 +93,48 @@ export function snapshot() {
 }
 
 /**
- * Restore state from a snapshot object.
+ * Restore state from a manifest + optional decrypted sensitive data.
+ *
+ * Three modes:
+ * 1. manifest-style with sensitive blob: snap has environment_extids/endpoint_extids,
+ *    sensitive has title/memo/results. Entities loaded separately via server.
+ * 2. Legacy full snapshot: snap has environments/endpoints arrays inline.
+ *    Used for drag-and-drop imports, HTML snapshots, and old testruns without
+ *    encrypted blobs.
+ * 3. Legacy full snapshot without separate sensitive: backward compat for old
+ *    testruns where everything was in state_json.
  */
-export function restore(snap) {
+export async function restore(snap, sensitive = null) {
   // Reset everything first
   resetSession();
-  clearEndpoints();
-  resetIdCounter();
+  await clearEndpoints();
 
-  // Restore session config
-  session.title = snap.title || '';
-  session.memo = snap.memo || '';
-  session.specSource = snap.specSource || null;
-  if (snap.ignorePaths && snap.ignorePaths.length) {
-    session.ignorePaths = [...snap.ignorePaths];
+  // If we have sensitive data (from decrypted blob), use it
+  if (sensitive) {
+    session.title = sensitive.title || '';
+    session.memo = sensitive.memo || '';
+    session.specSource = sensitive.specSource || null;
+    if (sensitive.ignorePaths?.length) {
+      session.ignorePaths = [...sensitive.ignorePaths];
+    }
+    ui.filter = sensitive.filter || 'all';
+    ui.ignoreOpen = !!sensitive.ignoreOpen;
   }
 
-  // Restore environments
-  if (snap.environments && snap.environments.length) {
-    session.environments = snap.environments.map(env => createEnvironment({
-      ...env,
+  // Restore environments from snap (backward compat) or load from server
+  if (snap.environments?.length) {
+    // Old-style snapshot with inline environments
+    session.environments = snap.environments.map(env => ({
+      extid: env.extid || env.id || '',  // backward compat: old snapshots used "id"
+      name: env.name || '',
+      baseUrl: env.baseUrl || '',
+      auth: env.auth || '',
+      memo: env.memo || '',
       metadata: env.metadata ? { ...env.metadata } : {},
     }));
-    // Preserve original IDs from snapshot
-    for (let i = 0; i < snap.environments.length; i++) {
-      session.environments[i].id = snap.environments[i].id;
-    }
   }
+  // If manifest-style (environment_extids), environments are loaded separately via loadEnvironments()
+
   session.selectedA = snap.selectedA || '';
   session.selectedB = snap.selectedB || '';
 
@@ -82,22 +142,42 @@ export function restore(snap) {
   // restored here — callers set it after restore() to avoid stale snapshot
   // values overwriting the actual navigation target.
 
-  // Restore endpoints (config only — results start clean to avoid stale data)
-  for (const ep of (snap.endpoints || [])) {
-    addEndpoint({
-      method: ep.method,
-      label: ep.label,
-      path: ep.path,
-      body: ep.body,
-      contentType: ep.contentType,
-      group: ep.group,
-      fieldsMode: ep.fieldsMode || 'off',
-      cardFields: ep.cardFields || null,
-      fieldValues: ep.fieldValues || null,
-    });
+  // Restore endpoints from snap (backward compat with inline endpoints)
+  if (snap.endpoints?.length) {
+    for (const ep of snap.endpoints) {
+      addEndpoint({
+        method: ep.method,
+        label: ep.label,
+        path: ep.path,
+        body: ep.body,
+        contentType: ep.contentType,
+        group: ep.group,
+        fieldsMode: ep.fieldsMode || 'off',
+        cardFields: ep.cardFields || null,
+        fieldValues: ep.fieldValues || null,
+      });
+    }
+  }
+  // If manifest-style (endpoint_extids), endpoints are loaded separately via loadEndpoints()
+
+  // Apply endpoint results from sensitive blob
+  if (sensitive?.endpoint_results?.length) {
+    for (const er of sensitive.endpoint_results) {
+      const ep = endpoints.find(e => e.extid === er.extid);
+      if (ep) {
+        ep.state = er.state || 'idle';
+        ep.result = er.result || null;
+      }
+    }
   }
 
-  // Restore UI state
-  ui.filter = snap.filter || 'all';
-  ui.ignoreOpen = !!snap.ignoreOpen;
+  // Backward compat: old snapshots had title/memo at top level
+  if (!sensitive && snap.title !== undefined) {
+    session.title = snap.title || '';
+    session.memo = snap.memo || '';
+    session.specSource = snap.specSource || null;
+    if (snap.ignorePaths?.length) session.ignorePaths = [...snap.ignorePaths];
+    ui.filter = snap.filter || 'all';
+    ui.ignoreOpen = !!snap.ignoreOpen;
+  }
 }

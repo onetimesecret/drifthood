@@ -220,7 +220,7 @@
     </div>
 
     <div class="toggle-block px-3.5 py-3 border-t border-edge" class:open={expanded}>
-      <DiffView result={r} endpointId={endpoint.id} />
+      <DiffView result={r} endpointId={endpoint.extid} />
 
       <div class="grid grid-cols-2 gap-3 mt-2.5">
         <div class="relative group bg-bg p-2 rounded-md">

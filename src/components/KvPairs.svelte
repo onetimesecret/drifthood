@@ -24,7 +24,7 @@
       .join('&');
 
     syncing = true;
-    updateEndpoint(endpoint.id, { body: assembled });
+    updateEndpoint(endpoint.extid, { body: assembled });
     // Use queueMicrotask to reset flag after the reactive update propagates
     queueMicrotask(() => { syncing = false; });
   });

@@ -1,5 +1,5 @@
 <script>
-  import { session, getEnvironment, updateEnvironment } from '../stores/session.svelte.js';
+  import { session, getEnvironment } from '../stores/session.svelte.js';
   import { auth } from '../stores/auth.svelte.js';
 
   let { extid = '' } = $props();

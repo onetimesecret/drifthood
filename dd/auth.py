@@ -9,13 +9,15 @@ Each session also gets a UUIDv7 extid for use in URLs. The raw token
 never appears in URLs — only the extid does (/s/{extid}).
 """
 
+import base64
 import hashlib
 import secrets
-from typing import Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 
 import dd.store as store
+from .crypto import hkdf_derive
+from .extid import uuid7
 
 router = APIRouter(prefix="/api/auth", tags=["auth"])
 
@@ -30,18 +32,32 @@ def hash_token(token: str) -> str:
     return hashlib.sha256(token.encode()).hexdigest()
 
 
-def get_session_hash(request: Request) -> Optional[str]:
-    """FastAPI dependency: extract session hash from Authorization header.
+def derive_auth_key(token: str, extid: str) -> str:
+    """Derive an auth key from token + extid via HKDF.
 
-    Reads `Authorization: Bearer <token>`, hashes the token, returns the hash.
-    Returns None if no Authorization header is present.
+    The raw token (base64url from secrets.token_urlsafe) is decoded to bytes
+    and used as IKM. The extid (UUIDv7 string) is the salt. Info is b"auth".
+    Returns a base64url-encoded (no padding) string matching token_urlsafe format.
     """
-    auth_header = request.headers.get("authorization", "")
-    if auth_header.startswith("Bearer "):
-        token = auth_header[7:].strip()
-        if token:
-            return hash_token(token)
-    return None
+    # Pad base64url token for decoding (token_urlsafe strips padding)
+    padded = token + '=' * (-len(token) % 4)
+    token_bytes = base64.urlsafe_b64decode(padded)
+    salt = extid.encode('utf-8')
+    info = b"auth"
+    auth_key_bytes = hkdf_derive(token_bytes, salt, info, 32)
+    return base64.urlsafe_b64encode(auth_key_bytes).rstrip(b'=').decode('ascii')
+
+
+def get_session_hash(request: Request) -> str:
+    """Extract session hash from Authorization: Bearer header.
+
+    Raises 401 if the header is missing or malformed.
+    """
+    auth = request.headers.get("Authorization", "")
+    if not auth.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid Authorization header")
+    token = auth[7:]
+    return hash_token(token)
 
 
 @router.post("/token")
@@ -53,8 +69,10 @@ async def create_token():
     while the extid appears in the URL path (/s/{extid}).
     """
     token = generate_token()
-    session_hash = hash_token(token)
-    session = store.create_session(session_hash)
+    extid = uuid7()
+    auth_key = derive_auth_key(token, extid)
+    session_hash = hash_token(auth_key)
+    session = store.create_session(session_hash, extid=extid)
     return {"token": token, "extid": session["extid"]}
 
 
@@ -65,11 +83,11 @@ async def validate_token(request: Request):
     Reads the token from the Authorization header.
     Returns {valid: bool, documentCount: int, extid: str|null}.
     """
-    session_hash = get_session_hash(request)
-    if not session_hash:
+    try:
+        session_hash = get_session_hash(request)
+    except HTTPException:
         return {"valid": False, "documentCount": 0, "extid": None}
     docs = store.list_documents(session_hash=session_hash)
-    # Look up or create the session to return its extid
     session = store.get_session_by_hash(session_hash)
     if not session:
         session = store.create_session(session_hash)

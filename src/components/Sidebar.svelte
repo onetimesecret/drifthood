@@ -2,11 +2,12 @@
   import { apiListDocuments, apiGetTestruns, apiGetTestrun, apiDeleteTestrun } from '../../lib/api.js';
   import { relativeTime, driftIndicator } from '../../lib/format.js';
   import { documents, resetDocuments, rememberLastDocument } from '../stores/documents.svelte.js';
-  import { endpoints, addEndpoint, clearEndpoints, resetIdCounter } from '../stores/endpoints.svelte.js';
+  import { endpoints, addEndpoint, clearEndpoints } from '../stores/endpoints.svelte.js';
   import { session, resetSession, seedDefaultEnvironments } from '../stores/session.svelte.js';
   import { ui, resetUi } from '../stores/ui.svelte.js';
   import { restore } from '../stores/snapshot.js';
   import { stateFingerprint } from '../../lib/state.js';
+  import { getAuthKey } from '../stores/auth.svelte.js';
 
   let { onBreadcrumb } = $props();
   let testrunsByDoc = $state({});
@@ -19,6 +20,7 @@
   });
 
   async function refreshSidebar() {
+    if (!getAuthKey()) return;  // not authenticated yet
     try {
       const data = await apiListDocuments();
       documents.list = data.documents || [];
@@ -79,7 +81,7 @@
       if (data.error || !data.testrun) return;
       const state = data.testrun.state;
       if (!state) return;
-      restore(state);
+      await restore(state);
       documents.currentDocumentExtid = docExtid;
       documents.currentTestrunExtid = testrunExtid;
       documents.currentTestrunNumber = testrunNumber;
@@ -110,12 +112,11 @@
 
   async function newDocument() {
     resetSession();
-    clearEndpoints();
-    resetIdCounter();
+    await clearEndpoints();
     resetDocuments();
     resetUi();
     await seedDefaultEnvironments();
-    addEndpoint();
+    await addEndpoint();
     refreshSidebar();
   }
 </script>

@@ -247,6 +247,68 @@ def init_db():
         conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_testruns_extid ON testruns(extid)")
         conn.commit()
 
+    # Migration: add blob columns to testruns
+    cursor = conn.execute("PRAGMA table_info(testruns)")
+    tr_columns = [
+        row[1] if isinstance(row, tuple) else row["name"]
+        for row in cursor.fetchall()
+    ]
+    blob_migrations = []
+    if "blob_hash" not in tr_columns:
+        blob_migrations.append("ALTER TABLE testruns ADD COLUMN blob_hash TEXT")
+    if "encrypted_blob" not in tr_columns:
+        blob_migrations.append("ALTER TABLE testruns ADD COLUMN encrypted_blob TEXT")
+    if "blob_iv" not in tr_columns:
+        blob_migrations.append("ALTER TABLE testruns ADD COLUMN blob_iv TEXT")
+    for sql in blob_migrations:
+        conn.execute(sql)
+    if blob_migrations:
+        conn.commit()
+
+    # ── Environments table ──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS environments (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            extid           TEXT UNIQUE NOT NULL,
+            session_hash    TEXT NOT NULL,
+            name            TEXT NOT NULL DEFAULT '',
+            blob_hash       TEXT,
+            encrypted_blob  TEXT,
+            blob_iv         TEXT,
+            created_at      TEXT NOT NULL,
+            updated_at      TEXT NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_environments_session ON environments(session_hash)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_environments_extid ON environments(extid)"
+    )
+
+    # ── Endpoints table ──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS endpoints (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            extid           TEXT UNIQUE NOT NULL,
+            session_hash    TEXT NOT NULL,
+            label           TEXT NOT NULL DEFAULT '',
+            "group"         TEXT NOT NULL DEFAULT '',
+            blob_hash       TEXT,
+            encrypted_blob  TEXT,
+            blob_iv         TEXT,
+            created_at      TEXT NOT NULL,
+            updated_at      TEXT NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_endpoints_session ON endpoints(session_hash)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_endpoints_extid ON endpoints(extid)"
+    )
+    conn.commit()
+
     conn.close()
 
 
@@ -280,10 +342,11 @@ def _summarize_state(state: dict) -> dict:
 # ── Sessions ──
 
 
-def create_session(session_hash: str) -> dict:
+def create_session(session_hash: str, *, extid: str = None) -> dict:
     """Create a new session record. Returns the session row."""
     now = _now()
-    extid = uuid7()
+    if extid is None:
+        extid = uuid7()
     conn = _connect()
     conn.execute(
         "INSERT INTO sessions (extid, session_hash, created_at) VALUES (?, ?, ?)",
@@ -405,30 +468,67 @@ def update_document_title_by_extid(extid: str, title: str):
 
 
 def create_testrun(
-    document_id: int, state: dict, testrun_type: str = "save"
+    document_id: int,
+    state: dict,
+    testrun_type: str = "save",
+    blob_hash: str | None = None,
+    encrypted_blob: str | None = None,
+    blob_iv: str | None = None,
+    endpoint_count: int | None = None,
+    drift_count: int | None = None,
+    ok_count: int | None = None,
 ) -> dict:
     assert testrun_type in ("save", "autosave"), (
         f"Invalid testrun_type: {testrun_type}"
     )
     now = _now()
     extid = uuid7()
-    summary = _summarize_state(state)
     state_hash = _hash_state(state)
+
+    # Use client-provided counts when available (manifest doesn't have endpoints inline),
+    # otherwise fall back to computing from state (legacy path)
+    if endpoint_count is not None:
+        summary = {
+            "endpoint_count": endpoint_count,
+            "drift_count": drift_count or 0,
+            "ok_count": ok_count or 0,
+        }
+    else:
+        summary = _summarize_state(state)
+
     conn = _connect()
 
     if testrun_type == "autosave":
-        cur = conn.execute(
-            "SELECT state_hash FROM testruns WHERE document_id = ? AND deleted_at IS NULL ORDER BY testrun_number DESC LIMIT 1",
-            (document_id,),
-        )
-        last = _fetchone_dict(cur)
-        if last and last["state_hash"] == state_hash:
-            conn.close()
-            return {
-                "skipped": True,
-                "reason": "state unchanged",
-                "state_hash": state_hash,
-            }
+        # Dedup: prefer blob_hash (client-provided SHA256 of encrypted content)
+        # over state_hash (server-computed from plaintext state) for dedup.
+        # blob_hash is more accurate because it covers the sensitive data
+        # that the server can't inspect.
+        if blob_hash:
+            cur = conn.execute(
+                "SELECT blob_hash FROM testruns WHERE document_id = ? AND deleted_at IS NULL ORDER BY testrun_number DESC LIMIT 1",
+                (document_id,),
+            )
+            last = _fetchone_dict(cur)
+            if last and last.get("blob_hash") == blob_hash:
+                conn.close()
+                return {
+                    "skipped": True,
+                    "reason": "blob unchanged",
+                    "blob_hash": blob_hash,
+                }
+        else:
+            cur = conn.execute(
+                "SELECT state_hash FROM testruns WHERE document_id = ? AND deleted_at IS NULL ORDER BY testrun_number DESC LIMIT 1",
+                (document_id,),
+            )
+            last = _fetchone_dict(cur)
+            if last and last["state_hash"] == state_hash:
+                conn.close()
+                return {
+                    "skipped": True,
+                    "reason": "state unchanged",
+                    "state_hash": state_hash,
+                }
 
     cur = conn.execute(
         "SELECT COALESCE(MAX(testrun_number), 0) AS mx FROM testruns WHERE document_id = ?",
@@ -440,8 +540,9 @@ def create_testrun(
     state_json = json.dumps(state)
     conn.execute(
         """INSERT INTO testruns
-           (extid, document_id, testrun_number, testrun_type, endpoint_count, drift_count, ok_count, state_json, state_hash, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (extid, document_id, testrun_number, testrun_type, endpoint_count, drift_count, ok_count,
+            state_json, state_hash, blob_hash, encrypted_blob, blob_iv, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             extid,
             document_id,
@@ -452,6 +553,9 @@ def create_testrun(
             summary["ok_count"],
             state_json,
             state_hash,
+            blob_hash,
+            encrypted_blob,
+            blob_iv,
             now,
         ),
     )
@@ -538,30 +642,72 @@ def get_latest_testrun(document_id: int) -> dict | None:
 
 
 def update_testrun(
-    document_id: int, testrun_number: int, state: dict
+    document_id: int,
+    testrun_number: int,
+    state: dict,
+    blob_hash: str | None = None,
+    encrypted_blob: str | None = None,
+    blob_iv: str | None = None,
+    endpoint_count: int | None = None,
+    drift_count: int | None = None,
+    ok_count: int | None = None,
 ) -> dict | None:
     """Update an existing testrun's state in-place (for explicit re-saves)."""
     now = _now()
-    summary = _summarize_state(state)
     state_hash = _hash_state(state)
     state_json = json.dumps(state)
+
+    # Use client-provided counts when available, otherwise compute from state
+    if endpoint_count is not None:
+        summary = {
+            "endpoint_count": endpoint_count,
+            "drift_count": drift_count or 0,
+            "ok_count": ok_count or 0,
+        }
+    else:
+        summary = _summarize_state(state)
+
     conn = _connect()
-    cur = conn.execute(
-        """UPDATE testruns
-           SET state_json = ?, state_hash = ?, endpoint_count = ?,
-               drift_count = ?, ok_count = ?, updated_at = ?
-           WHERE document_id = ? AND testrun_number = ? AND deleted_at IS NULL""",
-        (
-            state_json,
-            state_hash,
-            summary["endpoint_count"],
-            summary["drift_count"],
-            summary["ok_count"],
-            now,
-            document_id,
-            testrun_number,
-        ),
-    )
+
+    if blob_hash is not None:
+        cur = conn.execute(
+            """UPDATE testruns
+               SET state_json = ?, state_hash = ?, endpoint_count = ?,
+                   drift_count = ?, ok_count = ?,
+                   blob_hash = ?, encrypted_blob = ?, blob_iv = ?,
+                   updated_at = ?
+               WHERE document_id = ? AND testrun_number = ? AND deleted_at IS NULL""",
+            (
+                state_json,
+                state_hash,
+                summary["endpoint_count"],
+                summary["drift_count"],
+                summary["ok_count"],
+                blob_hash,
+                encrypted_blob,
+                blob_iv,
+                now,
+                document_id,
+                testrun_number,
+            ),
+        )
+    else:
+        cur = conn.execute(
+            """UPDATE testruns
+               SET state_json = ?, state_hash = ?, endpoint_count = ?,
+                   drift_count = ?, ok_count = ?, updated_at = ?
+               WHERE document_id = ? AND testrun_number = ? AND deleted_at IS NULL""",
+            (
+                state_json,
+                state_hash,
+                summary["endpoint_count"],
+                summary["drift_count"],
+                summary["ok_count"],
+                now,
+                document_id,
+                testrun_number,
+            ),
+        )
     if cur.rowcount == 0:
         conn.close()
         return None
@@ -583,28 +729,70 @@ def update_testrun(
     return testrun
 
 
-def update_testrun_by_extid(testrun_extid: str, state: dict) -> dict | None:
+def update_testrun_by_extid(
+    testrun_extid: str,
+    state: dict,
+    blob_hash: str | None = None,
+    encrypted_blob: str | None = None,
+    blob_iv: str | None = None,
+    endpoint_count: int | None = None,
+    drift_count: int | None = None,
+    ok_count: int | None = None,
+) -> dict | None:
     """Update a testrun identified by extid."""
     now = _now()
-    summary = _summarize_state(state)
     state_hash = _hash_state(state)
     state_json = json.dumps(state)
+
+    # Use client-provided counts when available, otherwise compute from state
+    if endpoint_count is not None:
+        summary = {
+            "endpoint_count": endpoint_count,
+            "drift_count": drift_count or 0,
+            "ok_count": ok_count or 0,
+        }
+    else:
+        summary = _summarize_state(state)
+
     conn = _connect()
-    cur = conn.execute(
-        """UPDATE testruns
-           SET state_json = ?, state_hash = ?, endpoint_count = ?,
-               drift_count = ?, ok_count = ?, updated_at = ?
-           WHERE extid = ? AND deleted_at IS NULL""",
-        (
-            state_json,
-            state_hash,
-            summary["endpoint_count"],
-            summary["drift_count"],
-            summary["ok_count"],
-            now,
-            testrun_extid,
-        ),
-    )
+
+    if blob_hash is not None:
+        cur = conn.execute(
+            """UPDATE testruns
+               SET state_json = ?, state_hash = ?, endpoint_count = ?,
+                   drift_count = ?, ok_count = ?,
+                   blob_hash = ?, encrypted_blob = ?, blob_iv = ?,
+                   updated_at = ?
+               WHERE extid = ? AND deleted_at IS NULL""",
+            (
+                state_json,
+                state_hash,
+                summary["endpoint_count"],
+                summary["drift_count"],
+                summary["ok_count"],
+                blob_hash,
+                encrypted_blob,
+                blob_iv,
+                now,
+                testrun_extid,
+            ),
+        )
+    else:
+        cur = conn.execute(
+            """UPDATE testruns
+               SET state_json = ?, state_hash = ?, endpoint_count = ?,
+                   drift_count = ?, ok_count = ?, updated_at = ?
+               WHERE extid = ? AND deleted_at IS NULL""",
+            (
+                state_json,
+                state_hash,
+                summary["endpoint_count"],
+                summary["drift_count"],
+                summary["ok_count"],
+                now,
+                testrun_extid,
+            ),
+        )
     if cur.rowcount == 0:
         conn.close()
         return None
@@ -667,6 +855,12 @@ def save(
     testrun_number: int | None = None,
     testrun_extid: str | None = None,
     session_hash: str = None,
+    blob_hash: str | None = None,
+    encrypted_blob: str | None = None,
+    blob_iv: str | None = None,
+    endpoint_count: int | None = None,
+    drift_count: int | None = None,
+    ok_count: int | None = None,
 ) -> dict:
     title = state.get("title") or "Untitled"
 
@@ -684,20 +878,240 @@ def save(
             update_document_title(doc["id"], title)
             doc["title"] = title
 
+    blob_kwargs = dict(
+        blob_hash=blob_hash,
+        encrypted_blob=encrypted_blob,
+        blob_iv=blob_iv,
+        endpoint_count=endpoint_count,
+        drift_count=drift_count,
+        ok_count=ok_count,
+    )
+
     # For explicit saves with an existing testrun, update in-place
     if testrun_type == "save":
         if testrun_extid:
-            updated = update_testrun_by_extid(testrun_extid, state)
+            updated = update_testrun_by_extid(testrun_extid, state, **blob_kwargs)
             if updated:
                 return {"document": doc, "testrun": updated}
         elif testrun_number:
-            updated = update_testrun(doc["id"], testrun_number, state)
+            updated = update_testrun(doc["id"], testrun_number, state, **blob_kwargs)
             if updated:
                 return {"document": doc, "testrun": updated}
         # Fall through to create_testrun if update failed (deleted/missing)
 
-    testrun = create_testrun(doc["id"], state, testrun_type)
+    testrun = create_testrun(doc["id"], state, testrun_type, **blob_kwargs)
     return {"document": doc, "testrun": testrun}
+
+
+# ── Environments ──
+
+
+def create_environment(session_hash, extid=None, name='', blob_hash=None, encrypted_blob=None, blob_iv=None):
+    """Create a new environment. Server generates extid if not provided."""
+    now = _now()
+    if extid is None:
+        extid = uuid7()
+    conn = _connect()
+    conn.execute(
+        """INSERT INTO environments (extid, session_hash, name, blob_hash, encrypted_blob, blob_iv, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+        (extid, session_hash, name, blob_hash, encrypted_blob, blob_iv, now, now),
+    )
+    conn.commit()
+    cur = conn.execute("SELECT * FROM environments WHERE extid = ?", (extid,))
+    env = _fetchone_dict(cur)
+    conn.close()
+    return env
+
+
+def get_environments(session_hash):
+    """Get all environments for a session."""
+    conn = _connect()
+    cur = conn.execute(
+        "SELECT * FROM environments WHERE session_hash = ? ORDER BY created_at ASC",
+        (session_hash,),
+    )
+    rows = _fetchall_dict(cur)
+    conn.close()
+    return rows
+
+
+def get_environment_by_extid(extid, session_hash):
+    """Get a single environment by extid, scoped to session."""
+    conn = _connect()
+    cur = conn.execute(
+        "SELECT * FROM environments WHERE extid = ? AND session_hash = ?",
+        (extid, session_hash),
+    )
+    env = _fetchone_dict(cur)
+    conn.close()
+    return env
+
+
+def update_environment(extid, session_hash, **fields):
+    """Update environment. Returns None if not found. Returns 'skipped' if blob_hash unchanged."""
+    conn = _connect()
+    cur = conn.execute(
+        "SELECT * FROM environments WHERE extid = ? AND session_hash = ?",
+        (extid, session_hash),
+    )
+    existing = _fetchone_dict(cur)
+    if not existing:
+        conn.close()
+        return None
+
+    # Dedup: if blob_hash unchanged, skip blob fields but keep metadata updates
+    blob_keys = {"blob_hash", "encrypted_blob", "blob_iv"}
+    if "blob_hash" in fields and fields["blob_hash"] is not None:
+        if existing.get("blob_hash") == fields["blob_hash"]:
+            fields = {k: v for k, v in fields.items() if k not in blob_keys}
+            if not fields:
+                conn.close()
+                return "skipped"
+
+    set_parts = []
+    values = []
+    for key in ("name", "blob_hash", "encrypted_blob", "blob_iv"):
+        if key in fields:
+            set_parts.append(f"{key} = ?")
+            values.append(fields[key])
+
+    if not set_parts:
+        conn.close()
+        return existing
+
+    set_parts.append("updated_at = ?")
+    values.append(_now())
+    values.extend([extid, session_hash])
+
+    conn.execute(
+        f"UPDATE environments SET {', '.join(set_parts)} WHERE extid = ? AND session_hash = ?",
+        values,
+    )
+    conn.commit()
+    cur2 = conn.execute("SELECT * FROM environments WHERE extid = ?", (extid,))
+    env = _fetchone_dict(cur2)
+    conn.close()
+    return env
+
+
+def delete_environment(extid, session_hash):
+    """Delete environment. Returns True if deleted, False if not found."""
+    conn = _connect()
+    cur = conn.execute(
+        "DELETE FROM environments WHERE extid = ? AND session_hash = ?",
+        (extid, session_hash),
+    )
+    conn.commit()
+    affected = cur.rowcount
+    conn.close()
+    return affected > 0
+
+
+# ── Endpoints ──
+
+
+def create_endpoint(session_hash, extid=None, label='', group='', blob_hash=None, encrypted_blob=None, blob_iv=None):
+    """Create a new endpoint. Server generates extid if not provided."""
+    now = _now()
+    if extid is None:
+        extid = uuid7()
+    conn = _connect()
+    conn.execute(
+        """INSERT INTO endpoints (extid, session_hash, label, "group", blob_hash, encrypted_blob, blob_iv, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        (extid, session_hash, label, group, blob_hash, encrypted_blob, blob_iv, now, now),
+    )
+    conn.commit()
+    cur = conn.execute("SELECT * FROM endpoints WHERE extid = ?", (extid,))
+    ep = _fetchone_dict(cur)
+    conn.close()
+    return ep
+
+
+def get_endpoints(session_hash):
+    """Get all endpoints for a session."""
+    conn = _connect()
+    cur = conn.execute(
+        "SELECT * FROM endpoints WHERE session_hash = ? ORDER BY created_at ASC",
+        (session_hash,),
+    )
+    rows = _fetchall_dict(cur)
+    conn.close()
+    return rows
+
+
+def get_endpoint_by_extid(extid, session_hash):
+    """Get a single endpoint by extid, scoped to session."""
+    conn = _connect()
+    cur = conn.execute(
+        "SELECT * FROM endpoints WHERE extid = ? AND session_hash = ?",
+        (extid, session_hash),
+    )
+    ep = _fetchone_dict(cur)
+    conn.close()
+    return ep
+
+
+def update_endpoint(extid, session_hash, **fields):
+    """Update endpoint. Returns None if not found. Returns 'skipped' if blob_hash unchanged."""
+    conn = _connect()
+    cur = conn.execute(
+        "SELECT * FROM endpoints WHERE extid = ? AND session_hash = ?",
+        (extid, session_hash),
+    )
+    existing = _fetchone_dict(cur)
+    if not existing:
+        conn.close()
+        return None
+
+    # Dedup: if blob_hash unchanged, skip blob fields but keep metadata updates
+    blob_keys = {"blob_hash", "encrypted_blob", "blob_iv"}
+    if "blob_hash" in fields and fields["blob_hash"] is not None:
+        if existing.get("blob_hash") == fields["blob_hash"]:
+            fields = {k: v for k, v in fields.items() if k not in blob_keys}
+            if not fields:
+                conn.close()
+                return "skipped"
+
+    set_parts = []
+    values = []
+    for key in ("label", "group", "blob_hash", "encrypted_blob", "blob_iv"):
+        if key in fields:
+            col = f'"{key}"' if key == "group" else key
+            set_parts.append(f"{col} = ?")
+            values.append(fields[key])
+
+    if not set_parts:
+        conn.close()
+        return existing
+
+    set_parts.append("updated_at = ?")
+    values.append(_now())
+    values.extend([extid, session_hash])
+
+    conn.execute(
+        f"UPDATE endpoints SET {', '.join(set_parts)} WHERE extid = ? AND session_hash = ?",
+        values,
+    )
+    conn.commit()
+    cur2 = conn.execute("SELECT * FROM endpoints WHERE extid = ?", (extid,))
+    ep = _fetchone_dict(cur2)
+    conn.close()
+    return ep
+
+
+def delete_endpoint(extid, session_hash):
+    """Delete endpoint. Returns True if deleted, False if not found."""
+    conn = _connect()
+    cur = conn.execute(
+        "DELETE FROM endpoints WHERE extid = ? AND session_hash = ?",
+        (extid, session_hash),
+    )
+    conn.commit()
+    affected = cur.rowcount
+    conn.close()
+    return affected > 0
 
 
 # Init on import

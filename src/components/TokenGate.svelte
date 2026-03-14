@@ -1,5 +1,5 @@
 <script>
-  import { auth, initAuth, setToken, setExtid, clearToken, getToken, getExtid } from '../stores/auth.svelte.js';
+  import { auth, initAuth, setTokenWithKeys, setExtid, clearToken, getToken, getExtid } from '../stores/auth.svelte.js';
   import { apiGenerateToken, apiValidateToken } from '../../lib/api.js';
   import { resetDocuments } from '../stores/documents.svelte.js';
   import { initVibe, setVibe } from '../stores/vibe.svelte.js';
@@ -15,24 +15,27 @@
   let validationError = $state(false);
   let copied = $state(false);
   let copiedBar = $state(false);
+  let authReady = $state(false);
 
   // Initialize auth from storage or URL on mount
   $effect(() => {
-    initAuth();
-    initVibe();
+    (async () => {
+      await initAuth();
+      initVibe();
+      authReady = true;
 
-    // Check for /s/{extid} in the URL — if we have a matching extid in storage, proceed
-    const match = window.location.pathname.match(/^\/s\/(.+)/);
-    if (match) {
-      const urlExtid = decodeURIComponent(match[1]);
-      if (!auth.token && !auth.extid) {
-        // Extid in URL but no token in storage — can't authenticate from extid alone
-        // Show landing page (user needs to enter their token)
-      } else if (auth.extid !== urlExtid && auth.token) {
-        // Token in storage but URL extid doesn't match — update stored extid
-        setExtid(urlExtid);
+      // Check for /s/{extid} in the URL
+      const match = window.location.pathname.match(/^\/s\/(.+)/);
+      if (match) {
+        const urlExtid = decodeURIComponent(match[1]);
+        if (!auth.token && !auth.extid) {
+          // Extid in URL but no token in storage — user needs to enter their token
+        } else if (auth.extid !== urlExtid && auth.token) {
+          // Token in storage but URL extid doesn't match — re-derive with correct extid
+          await setExtid(urlExtid);
+        }
       }
-    }
+    })();
   });
 
   // ── Landing page actions ──
@@ -44,7 +47,7 @@
     try {
       const data = await apiGenerateToken();
       generatedToken = data.token;
-      setToken(data.token, data.extid, rememberMe);
+      await setTokenWithKeys(data.token, data.extid, rememberMe);
       history.pushState(null, '', `/s/${encodeURIComponent(data.extid)}`);
       setVibe('new');
     } catch (err) {
@@ -56,30 +59,65 @@
   }
 
   async function handleLoad() {
-    const value = tokenInput.trim();
+    let value = tokenInput.trim();
     if (!value) return;
     loading = true;
     validationMessage = '';
     validationError = false;
+
     try {
-      // Store the token first (needed for the validate call)
-      setToken(value, null, rememberMe);
-      const data = await apiValidateToken();
-      if (data.extid) {
-        // Update with the server-provided extid
-        setExtid(data.extid);
-        history.pushState(null, '', `/s/${encodeURIComponent(data.extid)}`);
+      let extid = null;
+      let token = value;
+
+      // Check for combined extid:token format (UUID contains hyphens, token is base64url)
+      const colonIdx = value.indexOf(':');
+      if (colonIdx > 0) {
+        const maybExtid = value.slice(0, colonIdx);
+        // UUIDv7 is 36 chars with hyphens
+        if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(maybExtid)) {
+          extid = maybExtid;
+          token = value.slice(colonIdx + 1);
+        }
       }
-      if (data.documentCount > 0) {
-        validationMessage = `Found ${data.documentCount} document${data.documentCount === 1 ? '' : 's'} for this token.`;
+
+      // If no extid from paste, try URL or storage
+      if (!extid) {
+        const match = window.location.pathname.match(/^\/s\/(.+)/);
+        if (match) {
+          extid = decodeURIComponent(match[1]);
+        } else {
+          extid = getExtid();
+        }
+      }
+
+      if (!extid) {
+        validationMessage = 'Session ID required. Navigate to your /s/{extid} URL, or paste as extid:token.';
+        validationError = true;
+        return;
+      }
+
+      // Derive keys and store
+      await setTokenWithKeys(token, extid, rememberMe);
+
+      // Validate with the server (apiFetch now sends derived authKey)
+      const data = await apiValidateToken();
+      if (data.valid) {
+        history.pushState(null, '', `/s/${encodeURIComponent(extid)}`);
+        if (data.documentCount > 0) {
+          validationMessage = `Found ${data.documentCount} document${data.documentCount === 1 ? '' : 's'} for this token.`;
+        } else {
+          validationMessage = 'No data found for this token — starting fresh.';
+        }
         validationError = false;
       } else {
-        validationMessage = 'No data found for this token — starting fresh.';
-        validationError = false;
+        validationMessage = 'Invalid token for this session.';
+        validationError = true;
+        clearToken();
       }
     } catch (err) {
       validationMessage = 'Validation failed: ' + err.message;
       validationError = true;
+      clearToken();
     } finally {
       loading = false;
     }
@@ -117,7 +155,6 @@
   function handleSignOut() {
     clearToken();
     resetDocuments();
-    // Reset local state
     tokenInput = '';
     generatedToken = null;
     validationMessage = '';
@@ -130,9 +167,21 @@
     if (!token || token.length < 12) return token || '';
     return token.slice(0, 8) + '...' + token.slice(-4);
   }
+
+  /** Compute placeholder text based on whether we have an extid available */
+  function getPlaceholder() {
+    const match = window.location.pathname.match(/^\/s\/(.+)/);
+    const hasExtid = match || getExtid();
+    return hasExtid ? 'Paste your token' : 'Paste as extid:token';
+  }
 </script>
 
-{#if auth.token && !generatedToken}
+{#if !authReady}
+  <!-- Waiting for key derivation -->
+  <div class="flex items-center justify-center min-h-[80vh]">
+    <div class="text-text-dim text-[0.85em]">Loading...</div>
+  </div>
+{:else if auth.token && auth.authKey && !generatedToken}
   <!-- Authenticated: show token bar + children -->
   <div class="flex items-center gap-3 px-3 py-1.5 bg-surface border-b border-edge text-[0.75em] font-mono -mx-5 -mt-5 mb-4">
     <span class="text-text-dim" title={getToken()}>
@@ -194,7 +243,7 @@
             <input
               class="flex-1 bg-bg border border-edge text-text-primary px-3 py-2 rounded-md font-mono text-[0.8em] placeholder:text-text-dim"
               type="text"
-              placeholder="Paste your token"
+              placeholder={getPlaceholder()}
               bind:value={tokenInput}
               onkeydown={handleLoadKeydown}
             />

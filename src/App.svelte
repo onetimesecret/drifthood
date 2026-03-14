@@ -12,14 +12,16 @@
 
   import { DD_VERSION } from '../lib/examples.js';
   import { stateFingerprint } from '../lib/state.js';
+  import { encryptBlob, decryptBlob } from './lib/crypto.js';
+  import { getEncKey } from './stores/auth.svelte.js';
   import { apiSave, apiCompare, apiListDocuments, apiGetDocument, apiGetTestrun, apiUpdateDocumentTitle } from '../lib/api.js';
   import { toDiffPath } from '../lib/format.js';
   import { setNestedValue, flattenObj } from '../lib/params.js';
-  import { session, addEnvironment, getEnvA, getEnvB, seedDefaultEnvironments } from './stores/session.svelte.js';
-  import { endpoints, addEndpoint, clearResults } from './stores/endpoints.svelte.js';
+  import { session, getEnvA, getEnvB, seedDefaultEnvironments, loadEnvironments } from './stores/session.svelte.js';
+  import { endpoints, addEndpoint, clearResults, loadEndpoints } from './stores/endpoints.svelte.js';
   import { ui } from './stores/ui.svelte.js';
   import { documents, notifyDocumentsChanged, rememberLastDocument, recallLastDocument } from './stores/documents.svelte.js';
-  import { snapshot, restore } from './stores/snapshot.js';
+  import { snapshot, snapshotLegacy, restore } from './stores/snapshot.js';
   import { runConcurrent } from '../lib/concurrent.js';
 
   // ── Route state ──
@@ -139,7 +141,7 @@
   async function init() {
     // Check for embedded snapshot (HTML export)
     if (typeof globalThis.DD_SNAPSHOT !== 'undefined' && globalThis.DD_SNAPSHOT?.endpoints) {
-      restore(globalThis.DD_SNAPSHOT);
+      await restore(globalThis.DD_SNAPSHOT);
       const snap = globalThis.DD_SNAPSHOT;
       const src = snap.specSource || 'snapshot';
       const when = snap.savedAt ? ' (' + snap.savedAt.slice(0, 19).replace('T', ' ') + ')' : '';
@@ -159,6 +161,7 @@
         if (last?.docExtid && docExtids.has(last.docExtid)) {
           try {
             await loadSavedTestrun(last.docExtid, last.testrunExtid, last.testrunNumber);
+            await loadEnvironments();
             return;
           } catch { /* fall through to most recent */ }
         }
@@ -170,6 +173,7 @@
           if (docData.testruns?.length) {
             const latest = docData.testruns[docData.testruns.length - 1];
             await loadSavedTestrun(mostRecent.extid, latest.extid, latest.testrun_number);
+            await loadEnvironments();
             return;
           }
         } catch { /* fall through */ }
@@ -188,18 +192,48 @@
         showDropToast('Testrun not found: ' + (data.error || 'no testrun data'), true);
         return;
       }
-      const state = data.testrun.state;
+      const tr = data.testrun;
+      const state = tr.state;
       if (!state) {
         showDropToast('Testrun has no state data', true);
         return;
       }
-      restore(state);
+
+      // If testrun has an encrypted blob, decrypt it for sensitive data
+      let sensitive = null;
+      if (tr.encrypted_blob && tr.blob_iv) {
+        try {
+          const encKey = getEncKey();
+          if (encKey) {
+            // Use document extid as AAD (same as encryption)
+            const aad = docExtid || 'doc';
+            const plaintext = await decryptBlob(encKey, tr.encrypted_blob, tr.blob_iv, aad);
+            sensitive = JSON.parse(plaintext);
+          }
+        } catch (err) {
+          console.warn('Blob decryption failed, falling back to legacy state:', err.message);
+          // Fall through — restore will use legacy mode from state_json
+        }
+      }
+
+      await restore(state, sensitive);
+
+      // For manifest-style testruns, load environments and endpoints from server
+      if (state.environment_extids || state.endpoint_extids) {
+        await loadEnvironments();
+        await loadEndpoints();
+      }
+
       // Set document tracking AFTER restore() so the stale values
       // stored inside the snapshot don't overwrite the actual values.
       documents.currentDocumentExtid = docExtid;
       documents.currentTestrunExtid = testrunExtid;
       documents.currentTestrunNumber = testrunNumber;
-      documents.lastSavedStateHash = stateFingerprint(state);
+      // Fingerprint should match what snapshot() produces on next autosave check.
+      // For manifest-style testruns, combine manifest + sensitive; for legacy, use full state.
+      documents.lastSavedStateHash = sensitive
+        ? stateFingerprint({ ...state, ...sensitive })
+        : stateFingerprint(state);
       rememberLastDocument(docExtid, testrunExtid, testrunNumber);
       breadcrumbText = `testrun #${testrunNumber}`;
       showDropToast(`Loaded testrun #${testrunNumber}`, false);
@@ -213,15 +247,39 @@
   async function saveTestrun() {
     saveStatus = { text: 'Saving...', color: '', disabled: true };
     try {
-      const state = snapshot();
-      const data = await apiSave(state, documents.currentDocumentExtid, 'save', documents.currentTestrunExtid || null);
+      const { manifest, sensitive } = snapshot();
+
+      // Compute summary counts from sensitive data before encrypting
+      const endpointResults = sensitive.endpoint_results || [];
+      const endpointCount = endpointResults.length;
+      const driftCount = endpointResults.filter(er => er.state === 'done-drift').length;
+      const okCount = endpointResults.filter(er => er.state === 'done-ok').length;
+
+      // Encrypt sensitive data
+      let blobFields = null;
+      const encKey = getEncKey();
+      if (encKey) {
+        const sensitivePlain = JSON.stringify(sensitive);
+        const aad = documents.currentDocumentExtid || 'doc';
+        const { ciphertext, iv, hash } = await encryptBlob(encKey, sensitivePlain, aad);
+        blobFields = {
+          blobHash: hash,
+          encryptedBlob: ciphertext,
+          blobIv: iv,
+          endpointCount,
+          driftCount,
+          okCount,
+        };
+      }
+
+      const data = await apiSave(manifest, documents.currentDocumentExtid, 'save', documents.currentTestrunExtid || null, blobFields);
       if (data.ok) {
         documents.currentDocumentExtid = data.document.extid;
         if (data.testrun) {
           documents.currentTestrunExtid = data.testrun.extid;
           documents.currentTestrunNumber = data.testrun.testrun_number;
         }
-        documents.lastSavedStateHash = stateFingerprint(state);
+        documents.lastSavedStateHash = stateFingerprint({ ...manifest, ...sensitive });
         rememberLastDocument(documents.currentDocumentExtid, documents.currentTestrunExtid, documents.currentTestrunNumber);
         breadcrumbText = `testrun #${documents.currentTestrunNumber}`;
         startAutosave();
@@ -275,10 +333,34 @@
     if (!documents.currentDocumentExtid) return;
     if (!endpoints.length) return;
     try {
-      const state = snapshot();
-      const fp = stateFingerprint(state);
+      const { manifest, sensitive } = snapshot();
+      const fp = stateFingerprint({ ...manifest, ...sensitive });
       if (fp === documents.lastSavedStateHash) return;
-      const saveData = await apiSave(state, documents.currentDocumentExtid, 'autosave');
+
+      // Compute summary counts from sensitive data
+      const endpointResults = sensitive.endpoint_results || [];
+      const endpointCount = endpointResults.length;
+      const driftCount = endpointResults.filter(er => er.state === 'done-drift').length;
+      const okCount = endpointResults.filter(er => er.state === 'done-ok').length;
+
+      // Encrypt sensitive data
+      let blobFields = null;
+      const encKey = getEncKey();
+      if (encKey) {
+        const sensitivePlain = JSON.stringify(sensitive);
+        const aad = documents.currentDocumentExtid || 'doc';
+        const { ciphertext, iv, hash } = await encryptBlob(encKey, sensitivePlain, aad);
+        blobFields = {
+          blobHash: hash,
+          encryptedBlob: ciphertext,
+          blobIv: iv,
+          endpointCount,
+          driftCount,
+          okCount,
+        };
+      }
+
+      const saveData = await apiSave(manifest, documents.currentDocumentExtid, 'autosave', null, blobFields);
       if (saveData.skipped) {
         documents.lastSavedStateHash = fp;
         return;
@@ -362,7 +444,7 @@
     reader.readAsText(file);
   }
 
-  function handleDropJson(text, filename) {
+  async function handleDropJson(text, filename) {
     let data;
     try {
       data = JSON.parse(text);
@@ -372,7 +454,7 @@
     }
     if (data.endpoints && Array.isArray(data.endpoints)) {
       stopAutosave();
-      restore(data);
+      await restore(data);
       documents.currentDocumentExtid = null;
       documents.currentTestrunExtid = null;
       documents.currentTestrunNumber = 0;
@@ -389,7 +471,7 @@
     showDropToast('Unrecognized JSON. Expected a testrun export or OpenAPI spec.', true);
   }
 
-  function handleDropHtml(text, filename) {
+  async function handleDropHtml(text, filename) {
     const match = text.match(/var\s+DD_SNAPSHOT\s*=\s*(\{[\s\S]*?\});\s*<\/script>/);
     if (!match) {
       showDropToast('No snapshot data found in HTML file', true);
@@ -402,7 +484,7 @@
         return;
       }
       stopAutosave();
-      restore(snap);
+      await restore(snap);
       documents.currentDocumentExtid = null;
       documents.currentTestrunExtid = null;
       documents.currentTestrunNumber = 0;
@@ -589,7 +671,7 @@
 
     <!-- Endpoint cards with group dividers -->
     <div class="mb-5">
-      {#each groupedEntries as entry (entry.type === 'card' ? `card-${entry.ep.id}` : `div-${entry.group}`)}
+      {#each groupedEntries as entry, i (entry.type === 'card' ? `card-${entry.ep.extid || i}` : `div-${entry.group}`)}
         {#if entry.type === 'divider'}
           <div class="text-[0.75em] font-mono text-text-dim pt-2.5 pb-1 border-b border-edge mb-2 flex items-center gap-2">
             <span class="font-semibold text-text-primary">{entry.group}</span>

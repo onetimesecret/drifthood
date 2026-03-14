@@ -1,28 +1,28 @@
 <script>
   import Modal from './Modal.svelte';
-  import { session, addEnvironment, updateEnvironment, removeEnvironment } from '../stores/session.svelte.js';
+  import { session, createEnvironment, saveEnvironment, removeEnvironment } from '../stores/session.svelte.js';
 
   let { open, onclose } = $props();
 
-  let editingId = $state(null);
+  let editingExtid = $state(null);
 
   let editingEnv = $derived(
-    editingId ? session.environments.find(e => e.id === editingId) : null
+    editingExtid ? session.environments.find(e => e.extid === editingExtid) : null
   );
 
   // Convert metadata object to editable rows whenever the selected env changes
   let metaRows = $state([]);
-  let lastMetaSyncId = null;
+  let lastMetaSyncExtid = null;
 
   $effect(() => {
     const env = editingEnv;
     if (!env) {
       metaRows = [];
-      lastMetaSyncId = null;
+      lastMetaSyncExtid = null;
       return;
     }
-    if (env.id !== lastMetaSyncId) {
-      lastMetaSyncId = env.id;
+    if (env.extid !== lastMetaSyncExtid) {
+      lastMetaSyncExtid = env.extid;
       const entries = Object.entries(env.metadata || {});
       metaRows = entries.length > 0
         ? entries.map(([key, val]) => ({ key, val: String(val) }))
@@ -37,7 +37,7 @@
       const k = row.key.trim();
       if (k) obj[k] = row.val;
     }
-    updateEnvironment(editingEnv.id, { metadata: obj });
+    saveEnvironment(editingEnv.extid, { metadata: obj });
   }
 
   function addMetaRow() {
@@ -56,30 +56,30 @@
     syncMetaToStore();
   }
 
-  function handleAdd() {
-    const env = addEnvironment({ name: 'New Environment' });
-    editingId = env.id;
+  async function handleAdd() {
+    const env = await createEnvironment({ name: 'New Environment' });
+    editingExtid = env.extid;
   }
 
-  function handleSelect(id) {
-    editingId = id;
+  function handleSelect(extid) {
+    editingExtid = extid;
   }
 
-  function handleRemove(id) {
-    if (id === editingId) editingId = null;
-    removeEnvironment(id);
+  function handleRemove(extid) {
+    if (extid === editingExtid) editingExtid = null;
+    removeEnvironment(extid);
   }
 
-  function isInUse(id) {
-    if (session.selectedA === id && session.selectedB === id) return 'In use as Environment A & B';
-    if (session.selectedA === id) return 'In use as Environment A';
-    if (session.selectedB === id) return 'In use as Environment B';
+  function isInUse(extid) {
+    if (session.selectedA === extid && session.selectedB === extid) return 'In use as Environment A & B';
+    if (session.selectedA === extid) return 'In use as Environment A';
+    if (session.selectedB === extid) return 'In use as Environment B';
     return null;
   }
 
   function handleFieldChange(field, value) {
     if (!editingEnv) return;
-    updateEnvironment(editingEnv.id, { [field]: value });
+    saveEnvironment(editingEnv.extid, { [field]: value });
   }
 </script>
 
@@ -108,25 +108,25 @@
       </div>
 
       <div class="flex-1 overflow-y-auto">
-        {#each session.environments as env (env.id)}
-          {@const inUse = isInUse(env.id)}
-          {@const selected = editingId === env.id}
+        {#each session.environments as env (env.extid)}
+          {@const inUse = isInUse(env.extid)}
+          {@const selected = editingExtid === env.extid}
           <div
             role="button"
             tabindex="0"
             class="group/env flex items-center gap-2 px-3.5 py-2.5 cursor-pointer border-b border-edge text-[0.8em] hover:bg-white/[0.03] {selected ? 'bg-accent/[0.08]' : ''}"
-            onclick={() => handleSelect(env.id)}
-            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelect(env.id); } }}
+            onclick={() => handleSelect(env.extid)}
+            onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelect(env.extid); } }}
           >
             <div class="flex-1 min-w-0">
               <div class="text-text-primary font-medium truncate">{env.name || 'Untitled'}</div>
               <div class="text-[0.85em] text-text-dim font-mono truncate">{env.baseUrl || 'no url'}</div>
             </div>
-            {#if session.selectedA === env.id && session.selectedB === env.id}
+            {#if session.selectedA === env.extid && session.selectedB === env.extid}
               <span class="text-[0.65em] font-mono font-semibold text-accent shrink-0" title={inUse}>A B</span>
-            {:else if session.selectedA === env.id}
+            {:else if session.selectedA === env.extid}
               <span class="text-[0.65em] font-mono font-semibold text-accent shrink-0" title={inUse}>A</span>
-            {:else if session.selectedB === env.id}
+            {:else if session.selectedB === env.extid}
               <span class="text-[0.65em] font-mono font-semibold text-accent shrink-0" title={inUse}>B</span>
             {/if}
             {#if inUse}
@@ -139,7 +139,7 @@
               <button
                 class="opacity-0 group-hover/env:opacity-60 bg-transparent border-none text-text-dim cursor-pointer text-[1em] px-1 rounded-sm shrink-0 hover:opacity-100 hover:text-red"
                 title="Remove environment"
-                onclick={(e) => { e.stopPropagation(); handleRemove(env.id); }}
+                onclick={(e) => { e.stopPropagation(); handleRemove(env.extid); }}
               >&times;</button>
             {/if}
           </div>

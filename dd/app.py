@@ -16,6 +16,8 @@ from fastapi.staticfiles import StaticFiles
 from dd.auth import router as auth_router
 from dd.compare import router as compare_router
 from dd.documents import router as documents_router
+from dd.endpoints_api import router as endpoints_router
+from dd.environments import router as environments_router
 from dd.openapi import router as openapi_router
 import dd.store as store
 
@@ -38,6 +40,8 @@ def create_app() -> FastAPI:
     app.include_router(auth_router)
     app.include_router(compare_router)
     app.include_router(documents_router)
+    app.include_router(endpoints_router)
+    app.include_router(environments_router)
     app.include_router(openapi_router)
 
     # ── Frontend (Vite build output) ──

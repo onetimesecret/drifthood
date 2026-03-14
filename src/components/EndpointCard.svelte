@@ -48,7 +48,7 @@
     const idx = CT_CYCLE.indexOf(curKey);
     const nextKey = CT_CYCLE[(idx + 1) % CT_CYCLE.length];
     const next = CT[nextKey];
-    updateEndpoint(endpoint.id, { contentType: next.value });
+    updateEndpoint(endpoint.extid, { contentType: next.value });
   }
 
   function toggleFieldsMode() {
@@ -58,10 +58,10 @@
       if (hasBodyFields) {
         updates.body = assembleBodyFromFields();
       }
-      updateEndpoint(endpoint.id, updates);
+      updateEndpoint(endpoint.extid, updates);
     } else {
       // Switching ON
-      updateEndpoint(endpoint.id, { fieldsMode: 'on' });
+      updateEndpoint(endpoint.extid, { fieldsMode: 'on' });
     }
   }
 
@@ -114,7 +114,7 @@
   }
 
   async function runOne() {
-    updateEndpoint(endpoint.id, { state: 'running', result: null });
+    updateEndpoint(endpoint.extid, { state: 'running', result: null });
 
     try {
       const ep = readEndpoint();
@@ -142,12 +142,12 @@
       r.request_body = ep.body;
       r.request_content_type = ep.content_type;
 
-      updateEndpoint(endpoint.id, {
+      updateEndpoint(endpoint.extid, {
         state: r.has_drift ? 'done-drift' : 'done-ok',
         result: r,
       });
     } catch (err) {
-      updateEndpoint(endpoint.id, {
+      updateEndpoint(endpoint.extid, {
         state: 'done-drift',
         result: {
           has_drift: true,
@@ -161,7 +161,7 @@
   }
 
   function remove() {
-    removeEndpoint(endpoint.id);
+    removeEndpoint(endpoint.extid);
   }
 </script>
 
@@ -170,7 +170,7 @@
     <select
       class="bg-bg border border-edge text-text-primary px-2 py-1 rounded text-[0.85em] font-mono w-[80px]"
       value={endpoint.method}
-      onchange={(e) => updateEndpoint(endpoint.id, { method: e.target.value })}
+      onchange={(e) => updateEndpoint(endpoint.extid, { method: e.target.value })}
     >
       <option>GET</option>
       <option>POST</option>
@@ -183,7 +183,7 @@
       class="bg-bg border border-edge text-text-primary px-2 py-1 rounded text-[0.85em] font-mono flex-1 min-w-[180px]"
       placeholder="/api/v1/status"
       value={endpoint.path}
-      oninput={(e) => updateEndpoint(endpoint.id, { path: e.target.value })}
+      oninput={(e) => updateEndpoint(endpoint.extid, { path: e.target.value })}
     />
 
     {#if showBodyInput}
@@ -192,7 +192,7 @@
         class="bg-bg border text-text-primary px-2 py-1 rounded text-[0.85em] font-mono flex-[1.5] min-w-[180px] {ct.cls === 'json' ? 'border-accent' : 'border-edge'}"
         placeholder={ct.placeholder}
         value={endpoint.body}
-        oninput={(e) => updateEndpoint(endpoint.id, { body: e.target.value })}
+        oninput={(e) => updateEndpoint(endpoint.extid, { body: e.target.value })}
       />
     {/if}
 
@@ -220,7 +220,7 @@
         class="bg-bg border border-edge text-text-primary px-2 py-1 rounded text-[0.85em] font-mono w-[140px]"
         placeholder="label"
         value={endpoint.label}
-        oninput={(e) => updateEndpoint(endpoint.id, { label: e.target.value })}
+        oninput={(e) => updateEndpoint(endpoint.extid, { label: e.target.value })}
       />
     {/if}
 

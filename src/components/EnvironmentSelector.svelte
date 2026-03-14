@@ -53,8 +53,8 @@
       onchange={onSelect}
     >
       <option value="" disabled>Select environment...</option>
-      {#each session.environments as env (env.id)}
-        <option value={env.id}>{env.name || env.baseUrl}</option>
+      {#each session.environments as env (env.extid)}
+        <option value={env.extid}>{env.name || env.baseUrl}</option>
       {/each}
     </select>
 
