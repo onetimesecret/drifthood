@@ -3,6 +3,7 @@
   import Sidebar from './components/Sidebar.svelte';
   import EnvironmentSelector from './components/EnvironmentSelector.svelte';
   import EnvironmentModal from './components/EnvironmentModal.svelte';
+  import EnvironmentDetail from './components/EnvironmentDetail.svelte';
   import IgnoreConfig from './components/IgnoreConfig.svelte';
   import ActionBar from './components/ActionBar.svelte';
   import EndpointCard from './components/EndpointCard.svelte';
@@ -20,6 +21,23 @@
   import { documents, notifyDocumentsChanged, rememberLastDocument, recallLastDocument } from './stores/documents.svelte.js';
   import { snapshot, restore } from './stores/snapshot.js';
   import { runConcurrent } from '../lib/concurrent.js';
+
+  // ── Route state ──
+  let currentView = $state('session');  // 'session' | 'environment'
+  let envDetailExtid = $state(null);
+
+  // Parse route from URL
+  function parseRoute() {
+    const path = window.location.pathname;
+    const envMatch = path.match(/^\/e\/(.+)/);
+    if (envMatch) {
+      currentView = 'environment';
+      envDetailExtid = decodeURIComponent(envMatch[1]);
+    } else {
+      currentView = 'session';
+      envDetailExtid = null;
+    }
+  }
 
   // ── Save button state ──
   let saveStatus = $state({ text: 'Save', color: '', disabled: false });
@@ -77,18 +95,25 @@
 
   // ── Doc indicator ──
   let docIndicator = $derived(
-    documents.currentDocumentId
-      ? `doc #${documents.currentDocumentId} / testrun #${documents.currentTestrunNumber}`
+    documents.currentDocumentExtid
+      ? `testrun #${documents.currentTestrunNumber}`
       : ''
   );
 
   // ── Init on mount ──
   $effect(() => {
+    parseRoute();
     init();
     // Scroll listener for back-to-top
     const onScroll = () => { showBackToTop = window.scrollY > 400; };
     window.addEventListener('scroll', onScroll);
-    return () => window.removeEventListener('scroll', onScroll);
+    // Listen for popstate (back/forward navigation)
+    const onPopState = () => { parseRoute(); };
+    window.addEventListener('popstate', onPopState);
+    return () => {
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('popstate', onPopState);
+    };
   });
 
   // ── Invalidate results when environment config changes ──
@@ -128,12 +153,12 @@
       const data = await apiListDocuments();
       if (data.documents?.length) {
         const last = recallLastDocument();
-        const docIds = new Set(data.documents.map(d => d.id));
+        const docExtids = new Set(data.documents.map(d => d.extid));
 
         // Prefer the remembered doc if it still exists
-        if (last?.docId && docIds.has(last.docId)) {
+        if (last?.docExtid && docExtids.has(last.docExtid)) {
           try {
-            await loadSavedTestrun(last.docId, last.testrunNumber);
+            await loadSavedTestrun(last.docExtid, last.testrunExtid, last.testrunNumber);
             return;
           } catch { /* fall through to most recent */ }
         }
@@ -141,10 +166,10 @@
         // Fall back to most recent document
         const mostRecent = data.documents[0];
         try {
-          const docData = await apiGetDocument(mostRecent.id);
+          const docData = await apiGetDocument(mostRecent.extid);
           if (docData.testruns?.length) {
             const latest = docData.testruns[docData.testruns.length - 1];
-            await loadSavedTestrun(mostRecent.id, latest.testrun_number);
+            await loadSavedTestrun(mostRecent.extid, latest.extid, latest.testrun_number);
             return;
           }
         } catch { /* fall through */ }
@@ -156,9 +181,9 @@
     addEndpoint();
   }
 
-  async function loadSavedTestrun(docId, testrunNumber) {
+  async function loadSavedTestrun(docExtid, testrunExtid, testrunNumber) {
     try {
-      const data = await apiGetTestrun(docId, testrunNumber);
+      const data = await apiGetTestrun(docExtid, testrunExtid);
       if (data.error || !data.testrun) {
         showDropToast('Testrun not found: ' + (data.error || 'no testrun data'), true);
         return;
@@ -169,13 +194,14 @@
         return;
       }
       restore(state);
-      // Set document tracking AFTER restore() so the stale testrunNumber
-      // stored inside the snapshot doesn't overwrite the actual values.
-      documents.currentDocumentId = docId;
+      // Set document tracking AFTER restore() so the stale values
+      // stored inside the snapshot don't overwrite the actual values.
+      documents.currentDocumentExtid = docExtid;
+      documents.currentTestrunExtid = testrunExtid;
       documents.currentTestrunNumber = testrunNumber;
       documents.lastSavedStateHash = stateFingerprint(state);
-      rememberLastDocument(docId, testrunNumber);
-      breadcrumbText = `doc #${docId} testrun #${testrunNumber}`;
+      rememberLastDocument(docExtid, testrunExtid, testrunNumber);
+      breadcrumbText = `testrun #${testrunNumber}`;
       showDropToast(`Loaded testrun #${testrunNumber}`, false);
       startAutosave();
     } catch (err) {
@@ -188,15 +214,16 @@
     saveStatus = { text: 'Saving...', color: '', disabled: true };
     try {
       const state = snapshot();
-      const data = await apiSave(state, documents.currentDocumentId, 'save', documents.currentTestrunNumber || null);
+      const data = await apiSave(state, documents.currentDocumentExtid, 'save', documents.currentTestrunExtid || null);
       if (data.ok) {
-        documents.currentDocumentId = data.document.id;
+        documents.currentDocumentExtid = data.document.extid;
         if (data.testrun) {
+          documents.currentTestrunExtid = data.testrun.extid;
           documents.currentTestrunNumber = data.testrun.testrun_number;
         }
         documents.lastSavedStateHash = stateFingerprint(state);
-        rememberLastDocument(documents.currentDocumentId, documents.currentTestrunNumber);
-        breadcrumbText = `doc #${documents.currentDocumentId} testrun #${documents.currentTestrunNumber}`;
+        rememberLastDocument(documents.currentDocumentExtid, documents.currentTestrunExtid, documents.currentTestrunNumber);
+        breadcrumbText = `testrun #${documents.currentTestrunNumber}`;
         startAutosave();
         saveStatus = { text: '\u2713 Saved', color: 'var(--green)', disabled: true };
         notifyDocumentsChanged();
@@ -221,10 +248,10 @@
   }
   async function onTitleBlur() {
     const newTitle = session.title.trim();
-    if (!documents.currentDocumentId || newTitle === lastSyncedTitle) return;
+    if (!documents.currentDocumentExtid || newTitle === lastSyncedTitle) return;
     lastSyncedTitle = newTitle;
     try {
-      await apiUpdateDocumentTitle(documents.currentDocumentId, newTitle || 'Untitled');
+      await apiUpdateDocumentTitle(documents.currentDocumentExtid, newTitle || 'Untitled');
     } catch { /* silent */ }
   }
 
@@ -245,21 +272,22 @@
   }
 
   async function doAutosave() {
-    if (!documents.currentDocumentId) return;
+    if (!documents.currentDocumentExtid) return;
     if (!endpoints.length) return;
     try {
       const state = snapshot();
       const fp = stateFingerprint(state);
       if (fp === documents.lastSavedStateHash) return;
-      const saveData = await apiSave(state, documents.currentDocumentId, 'autosave');
+      const saveData = await apiSave(state, documents.currentDocumentExtid, 'autosave');
       if (saveData.skipped) {
         documents.lastSavedStateHash = fp;
         return;
       }
       documents.lastSavedStateHash = fp;
       if (saveData.testrun) {
+        documents.currentTestrunExtid = saveData.testrun.extid;
         documents.currentTestrunNumber = saveData.testrun.testrun_number;
-        breadcrumbText = `doc #${documents.currentDocumentId} testrun #${documents.currentTestrunNumber}`;
+        breadcrumbText = `testrun #${documents.currentTestrunNumber}`;
       }
       notifyDocumentsChanged();
       showAutoSaveToast();
@@ -273,7 +301,7 @@
     function onVisibility() {
       if (document.hidden) {
         stopAutosave();
-      } else if (documents.currentDocumentId) {
+      } else if (documents.currentDocumentExtid) {
         startAutosave();
       }
     }
@@ -345,7 +373,8 @@
     if (data.endpoints && Array.isArray(data.endpoints)) {
       stopAutosave();
       restore(data);
-      documents.currentDocumentId = null;
+      documents.currentDocumentExtid = null;
+      documents.currentTestrunExtid = null;
       documents.currentTestrunNumber = 0;
       breadcrumbText = data.specSource || filename;
       showDropToast('Loaded testrun: ' + filename, false);
@@ -374,7 +403,8 @@
       }
       stopAutosave();
       restore(snap);
-      documents.currentDocumentId = null;
+      documents.currentDocumentExtid = null;
+      documents.currentTestrunExtid = null;
       documents.currentTestrunNumber = 0;
       const src = snap.specSource || filename;
       const when = snap.savedAt ? ' (' + snap.savedAt.slice(0, 19).replace('T', ' ') + ')' : '';
@@ -412,9 +442,6 @@
   }
 
   // ── Run group ──
-  // Exposed for group divider "run group" buttons — delegates to ActionBar's run logic
-  // But since ActionBar has runAll, we do a lightweight version here that runs
-  // only endpoints in a specific group.
   async function runGroup(groupName) {
     const ignorePaths = session.ignorePaths.length
       ? session.ignorePaths.map(toDiffPath)
@@ -491,6 +518,9 @@
 </script>
 
 <TokenGate>
+{#if currentView === 'environment' && envDetailExtid}
+  <EnvironmentDetail extid={envDetailExtid} />
+{:else}
 <div class="flex min-h-screen -m-5">
   <Sidebar onBreadcrumb={(text) => breadcrumbText = text} />
 
@@ -599,6 +629,7 @@
 <OpenApiLoader open={ui.activeModal === 'openapi'} onclose={() => { ui.activeModal = null; }} />
 <SchemaDiff open={ui.activeModal === 'schema-diff'} onclose={() => { ui.activeModal = null; }} />
 <EnvironmentModal open={ui.activeModal === 'environments'} onclose={() => { ui.activeModal = null; }} />
+{/if}
 
 <!-- Drop overlay -->
 {#if dropActive}

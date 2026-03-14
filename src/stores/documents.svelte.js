@@ -1,6 +1,9 @@
-// Svelte 5 runes — reactive state for document/testrun tracking
+// Svelte 5 runes — reactive state for document/testrun tracking.
+//
+// All references use UUIDv7 extids. Integer IDs never appear here.
 export const documents = $state({
-  currentDocumentId: null,
+  currentDocumentExtid: null,
+  currentTestrunExtid: null,
   currentTestrunNumber: 0,
   lastSavedStateHash: null,
   list: [],                 // cached document list from API
@@ -15,9 +18,9 @@ export function notifyDocumentsChanged() {
 const LAST_DOC_KEY = 'dd:lastDocument';
 
 /** Persist the current doc/testrun so it survives page refresh. */
-export function rememberLastDocument(docId, testrunNumber) {
+export function rememberLastDocument(docExtid, testrunExtid, testrunNumber) {
   try {
-    localStorage.setItem(LAST_DOC_KEY, JSON.stringify({ docId, testrunNumber }));
+    localStorage.setItem(LAST_DOC_KEY, JSON.stringify({ docExtid, testrunExtid, testrunNumber }));
   } catch { /* quota / private browsing */ }
 }
 
@@ -27,13 +30,14 @@ export function recallLastDocument() {
     const raw = localStorage.getItem(LAST_DOC_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw);
-    if (parsed?.docId) return parsed;
+    if (parsed?.docExtid) return parsed;
   } catch { /* corrupted */ }
   return null;
 }
 
 export function resetDocuments() {
-  documents.currentDocumentId = null;
+  documents.currentDocumentExtid = null;
+  documents.currentTestrunExtid = null;
   documents.currentTestrunNumber = 0;
   documents.lastSavedStateHash = null;
   documents.list = [];

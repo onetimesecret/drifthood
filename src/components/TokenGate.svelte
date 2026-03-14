@@ -1,5 +1,5 @@
 <script>
-  import { auth, initAuth, setToken, clearToken, getToken } from '../stores/auth.svelte.js';
+  import { auth, initAuth, setToken, setExtid, clearToken, getToken, getExtid } from '../stores/auth.svelte.js';
   import { apiGenerateToken, apiValidateToken } from '../../lib/api.js';
   import { resetDocuments } from '../stores/documents.svelte.js';
   import { initVibe, setVibe } from '../stores/vibe.svelte.js';
@@ -21,13 +21,16 @@
     initAuth();
     initVibe();
 
-    // Check for /s/{token} in the URL
+    // Check for /s/{extid} in the URL — if we have a matching extid in storage, proceed
     const match = window.location.pathname.match(/^\/s\/(.+)/);
     if (match) {
-      const urlToken = decodeURIComponent(match[1]);
-      if (!auth.token) {
-        // Token from URL but not in storage — load it silently
-        setToken(urlToken, false);
+      const urlExtid = decodeURIComponent(match[1]);
+      if (!auth.token && !auth.extid) {
+        // Extid in URL but no token in storage — can't authenticate from extid alone
+        // Show landing page (user needs to enter their token)
+      } else if (auth.extid !== urlExtid && auth.token) {
+        // Token in storage but URL extid doesn't match — update stored extid
+        setExtid(urlExtid);
       }
     }
   });
@@ -41,8 +44,8 @@
     try {
       const data = await apiGenerateToken();
       generatedToken = data.token;
-      setToken(data.token, rememberMe);
-      history.pushState(null, '', `/s/${encodeURIComponent(data.token)}`);
+      setToken(data.token, data.extid, rememberMe);
+      history.pushState(null, '', `/s/${encodeURIComponent(data.extid)}`);
       setVibe('new');
     } catch (err) {
       validationMessage = 'Failed to generate token: ' + err.message;
@@ -59,9 +62,14 @@
     validationMessage = '';
     validationError = false;
     try {
-      setToken(value, rememberMe);
-      history.pushState(null, '', `/s/${encodeURIComponent(value)}`);
+      // Store the token first (needed for the validate call)
+      setToken(value, null, rememberMe);
       const data = await apiValidateToken();
+      if (data.extid) {
+        // Update with the server-provided extid
+        setExtid(data.extid);
+        history.pushState(null, '', `/s/${encodeURIComponent(data.extid)}`);
+      }
       if (data.documentCount > 0) {
         validationMessage = `Found ${data.documentCount} document${data.documentCount === 1 ? '' : 's'} for this token.`;
         validationError = false;

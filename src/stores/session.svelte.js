@@ -1,4 +1,5 @@
 import { apiConfig } from '../../lib/api.js';
+import { uuidv7 } from '../../lib/extid.js';
 
 // Svelte 5 runes — reactive state for session config
 //
@@ -29,7 +30,7 @@ export function resetSession() {
 
 export function createEnvironment(fields = {}) {
   return {
-    id: crypto.randomUUID(),
+    id: uuidv7(),
     name: fields.name || '',
     baseUrl: fields.baseUrl || '',
     auth: fields.auth || '',

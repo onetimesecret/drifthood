@@ -1,7 +1,7 @@
 import { session, resetSession, createEnvironment } from './session.svelte.js';
 import { endpoints, addEndpoint, clearEndpoints, resetIdCounter } from './endpoints.svelte.js';
 import { ui } from './ui.svelte.js';
-import { documents, resetDocuments } from './documents.svelte.js';
+import { documents } from './documents.svelte.js';
 
 import { DD_VERSION } from '../../lib/examples.js';
 
@@ -12,7 +12,8 @@ export function snapshot() {
   return {
     version: DD_VERSION,
     savedAt: new Date().toISOString(),
-    documentId: documents.currentDocumentId,
+    documentExtid: documents.currentDocumentExtid,
+    testrunExtid: documents.currentTestrunExtid,
     testrunNumber: documents.currentTestrunNumber,
     title: session.title,
     memo: session.memo,
@@ -77,7 +78,7 @@ export function restore(snap) {
   session.selectedA = snap.selectedA || '';
   session.selectedB = snap.selectedB || '';
 
-  // NOTE: Document tracking (currentDocumentId, currentTestrunNumber) is NOT
+  // NOTE: Document tracking (currentDocumentExtid, currentTestrunExtid) is NOT
   // restored here — callers set it after restore() to avoid stale snapshot
   // values overwriting the actual navigation target.
 

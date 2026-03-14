@@ -6,8 +6,9 @@ Mounts routers and serves the Vite-built frontend from dist/.
 """
 
 import os
+import re
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,6 +17,12 @@ from dd.auth import router as auth_router
 from dd.compare import router as compare_router
 from dd.documents import router as documents_router
 from dd.openapi import router as openapi_router
+import dd.store as store
+
+# UUIDv7 is a standard UUID format — validate with the general UUID regex
+_UUID_RE = re.compile(
+    r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$", re.I
+)
 
 
 def create_app() -> FastAPI:
@@ -42,9 +49,22 @@ def create_app() -> FastAPI:
     async def index():
         return FileResponse(os.path.join(dist_dir, "index.html"))
 
-    # SPA fallback — serve index.html for /s/{token} session routes
-    @app.get("/s/{token:path}")
-    async def session_spa_fallback(token: str):
+    # SPA fallback — serve index.html for /s/{extid} session routes.
+    # Rejects non-UUID paths and unknown session extids with 404.
+    @app.get("/s/{extid:path}")
+    async def session_spa_fallback(extid: str):
+        if not _UUID_RE.match(extid):
+            raise HTTPException(status_code=404, detail="Not found")
+        session = store.get_session_by_extid(extid)
+        if not session:
+            raise HTTPException(status_code=404, detail="Not found")
+        return FileResponse(os.path.join(dist_dir, "index.html"))
+
+    # SPA fallback — serve index.html for /e/{extid} environment detail routes
+    @app.get("/e/{extid:path}")
+    async def environment_spa_fallback(extid: str):
+        if not _UUID_RE.match(extid):
+            raise HTTPException(status_code=404, detail="Not found")
         return FileResponse(os.path.join(dist_dir, "index.html"))
 
     # Vite puts hashed JS/CSS in dist/assets/

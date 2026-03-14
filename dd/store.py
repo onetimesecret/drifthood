@@ -7,8 +7,13 @@ Document = a named container (like a notebook/runbook).
 Testrun  = a numbered snapshot within a document. Each Save appends one.
            Contains the full cumulative state at that point.
            testrun_type is either 'save' (explicit) or 'autosave' (periodic).
+Session  = a token-based identity. Stores the SHA256 hash of the auth token
+           and a public-facing extid (UUIDv7) for URL references.
 
 Schema is deliberately flat and simple. JSON goes in as TEXT.
+
+All entities use UUIDv7 extids as their external identifiers. Primary keys
+(integer IDs) and auth tokens never appear in URLs, UI, or API responses.
 
 ── Turso / libSQL swap ──
 The connection factory (_connect) is the single point of change.
@@ -23,6 +28,7 @@ import sqlite3
 from datetime import datetime, timezone
 
 from dd.config import DB_AUTH_TOKEN, DB_DRIVER, DB_PATH
+from dd.extid import uuid7
 
 
 def _connect():
@@ -100,18 +106,40 @@ def init_db():
     libsql_experimental (the Turso driver) doesn't implement executescript().
     """
     conn = _connect()
+
+    # ── Sessions table (new) ──
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sessions (
+            id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            extid        TEXT NOT NULL UNIQUE,
+            session_hash TEXT NOT NULL,
+            created_at   TEXT NOT NULL
+        )
+    """)
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_sessions_hash ON sessions(session_hash)"
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_sessions_extid ON sessions(extid)"
+    )
+
+    # ── Documents table ──
     conn.execute("""
         CREATE TABLE IF NOT EXISTS documents (
             id           INTEGER PRIMARY KEY AUTOINCREMENT,
+            extid        TEXT UNIQUE,
             title        TEXT NOT NULL DEFAULT 'Untitled',
             session_hash TEXT,
             created_at   TEXT NOT NULL,
             updated_at   TEXT NOT NULL
         )
     """)
+
+    # ── Testruns table ──
     conn.execute("""
         CREATE TABLE IF NOT EXISTS testruns (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            extid           TEXT UNIQUE,
             document_id     INTEGER NOT NULL REFERENCES documents(id),
             testrun_number  INTEGER NOT NULL,
             testrun_type    TEXT NOT NULL DEFAULT 'save',
@@ -136,16 +164,22 @@ def init_db():
 
     # Migration: rename sessions -> testruns (for existing DBs)
     cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'")
-    if cursor.fetchone():
-        testruns_check = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='testruns'")
-        if not testruns_check.fetchone():
-            conn.execute("ALTER TABLE sessions RENAME TO testruns")
-            conn.execute("ALTER TABLE testruns RENAME COLUMN session_number TO testrun_number")
-            conn.execute("ALTER TABLE testruns RENAME COLUMN session_type TO testrun_type")
-            # Drop old index, create new one
-            conn.execute("DROP INDEX IF EXISTS idx_sessions_doc")
-            conn.execute("CREATE INDEX IF NOT EXISTS idx_testruns_doc ON testruns(document_id)")
-            conn.commit()
+    old_sessions = cursor.fetchone()
+    if old_sessions:
+        # Check if this is the OLD sessions table (renamed to testruns) vs our NEW sessions table
+        # The old sessions table had state_json; the new one has session_hash
+        cols_cursor = conn.execute("PRAGMA table_info(sessions)")
+        col_names = [row[1] if isinstance(row, tuple) else row["name"] for row in cols_cursor.fetchall()]
+        if "state_json" in col_names:
+            # This is the old sessions table — rename to testruns
+            testruns_check = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='testruns'")
+            if not testruns_check.fetchone():
+                conn.execute("ALTER TABLE sessions RENAME TO testruns")
+                conn.execute("ALTER TABLE testruns RENAME COLUMN session_number TO testrun_number")
+                conn.execute("ALTER TABLE testruns RENAME COLUMN session_type TO testrun_type")
+                conn.execute("DROP INDEX IF EXISTS idx_sessions_doc")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_testruns_doc ON testruns(document_id)")
+                conn.commit()
 
     # Migration: add session_hash column to documents
     cursor = conn.execute("PRAGMA table_info(documents)")
@@ -153,6 +187,19 @@ def init_db():
     if "session_hash" not in doc_columns:
         conn.execute("ALTER TABLE documents ADD COLUMN session_hash TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_documents_session_hash ON documents(session_hash)")
+        conn.commit()
+
+    # Migration: add extid column to documents
+    cursor = conn.execute("PRAGMA table_info(documents)")
+    doc_columns = [row[1] if isinstance(row, tuple) else row["name"] for row in cursor.fetchall()]
+    if "extid" not in doc_columns:
+        conn.execute("ALTER TABLE documents ADD COLUMN extid TEXT UNIQUE")
+        # Backfill existing rows
+        cursor = conn.execute("SELECT id FROM documents WHERE extid IS NULL")
+        for row in cursor.fetchall():
+            doc_id = row[0] if isinstance(row, tuple) else row["id"]
+            conn.execute("UPDATE documents SET extid = ? WHERE id = ?", (uuid7(), doc_id))
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_extid ON documents(extid)")
         conn.commit()
 
     # Migrations for existing testruns table
@@ -184,9 +231,20 @@ def init_db():
         migrations.append("ALTER TABLE testruns ADD COLUMN updated_at TEXT")
     if "deleted_at" not in columns:
         migrations.append("ALTER TABLE testruns ADD COLUMN deleted_at TEXT")
+    if "extid" not in columns:
+        migrations.append("ALTER TABLE testruns ADD COLUMN extid TEXT UNIQUE")
     for sql in migrations:
         conn.execute(sql)
     if migrations:
+        conn.commit()
+
+    # Backfill extid for testruns
+    if "extid" not in columns:
+        cursor = conn.execute("SELECT id FROM testruns WHERE extid IS NULL")
+        for row in cursor.fetchall():
+            tr_id = row[0] if isinstance(row, tuple) else row["id"]
+            conn.execute("UPDATE testruns SET extid = ? WHERE id = ?", (uuid7(), tr_id))
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_testruns_extid ON testruns(extid)")
         conn.commit()
 
     conn.close()
@@ -219,15 +277,55 @@ def _summarize_state(state: dict) -> dict:
     }
 
 
+# ── Sessions ──
+
+
+def create_session(session_hash: str) -> dict:
+    """Create a new session record. Returns the session row."""
+    now = _now()
+    extid = uuid7()
+    conn = _connect()
+    conn.execute(
+        "INSERT INTO sessions (extid, session_hash, created_at) VALUES (?, ?, ?)",
+        (extid, session_hash, now),
+    )
+    conn.commit()
+    cur = conn.execute("SELECT * FROM sessions WHERE extid = ?", (extid,))
+    session = _fetchone_dict(cur)
+    conn.close()
+    return session
+
+
+def get_session_by_hash(session_hash: str) -> dict | None:
+    """Look up a session by its hash. Returns the most recent match."""
+    conn = _connect()
+    cur = conn.execute(
+        "SELECT * FROM sessions WHERE session_hash = ? ORDER BY created_at DESC LIMIT 1",
+        (session_hash,),
+    )
+    session = _fetchone_dict(cur)
+    conn.close()
+    return session
+
+
+def get_session_by_extid(extid: str) -> dict | None:
+    conn = _connect()
+    cur = conn.execute("SELECT * FROM sessions WHERE extid = ?", (extid,))
+    session = _fetchone_dict(cur)
+    conn.close()
+    return session
+
+
 # ── Documents ──
 
 
 def create_document(title: str, session_hash: str = None) -> dict:
     now = _now()
+    extid = uuid7()
     conn = _connect()
     cur = conn.execute(
-        "INSERT INTO documents (title, session_hash, created_at, updated_at) VALUES (?, ?, ?, ?)",
-        (title, session_hash, now, now),
+        "INSERT INTO documents (extid, title, session_hash, created_at, updated_at) VALUES (?, ?, ?, ?, ?)",
+        (extid, title, session_hash, now, now),
     )
     doc_id = cur.lastrowid
     conn.commit()
@@ -240,6 +338,14 @@ def create_document(title: str, session_hash: str = None) -> dict:
 def get_document(doc_id: int) -> dict | None:
     conn = _connect()
     cur = conn.execute("SELECT * FROM documents WHERE id = ?", (doc_id,))
+    doc = _fetchone_dict(cur)
+    conn.close()
+    return doc
+
+
+def get_document_by_extid(extid: str) -> dict | None:
+    conn = _connect()
+    cur = conn.execute("SELECT * FROM documents WHERE extid = ?", (extid,))
     doc = _fetchone_dict(cur)
     conn.close()
     return doc
@@ -285,6 +391,16 @@ def update_document_title(doc_id: int, title: str):
     conn.close()
 
 
+def update_document_title_by_extid(extid: str, title: str):
+    conn = _connect()
+    conn.execute(
+        "UPDATE documents SET title = ?, updated_at = ? WHERE extid = ?",
+        (title, _now(), extid),
+    )
+    conn.commit()
+    conn.close()
+
+
 # ── Testruns ──
 
 
@@ -295,6 +411,7 @@ def create_testrun(
         f"Invalid testrun_type: {testrun_type}"
     )
     now = _now()
+    extid = uuid7()
     summary = _summarize_state(state)
     state_hash = _hash_state(state)
     conn = _connect()
@@ -323,9 +440,10 @@ def create_testrun(
     state_json = json.dumps(state)
     conn.execute(
         """INSERT INTO testruns
-           (document_id, testrun_number, testrun_type, endpoint_count, drift_count, ok_count, state_json, state_hash, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           (extid, document_id, testrun_number, testrun_type, endpoint_count, drift_count, ok_count, state_json, state_hash, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
+            extid,
             document_id,
             next_num,
             testrun_type,
@@ -345,7 +463,7 @@ def create_testrun(
     conn.commit()
 
     cur2 = conn.execute(
-        """SELECT id, document_id, testrun_number, testrun_type,
+        """SELECT id, extid, document_id, testrun_number, testrun_type,
                   endpoint_count, drift_count, ok_count, state_hash, created_at, updated_at
            FROM testruns WHERE document_id = ? AND testrun_number = ?""",
         (document_id, next_num),
@@ -358,7 +476,7 @@ def create_testrun(
 def list_testruns(document_id: int) -> list[dict]:
     conn = _connect()
     cur = conn.execute(
-        """SELECT id, document_id, testrun_number, testrun_type,
+        """SELECT id, extid, document_id, testrun_number, testrun_type,
                   endpoint_count, drift_count, ok_count, state_hash, created_at, updated_at
            FROM testruns WHERE document_id = ? AND deleted_at IS NULL
            ORDER BY testrun_number""",
@@ -386,6 +504,17 @@ def get_testrun_by_number(document_id: int, testrun_number: int) -> dict | None:
         "SELECT * FROM testruns WHERE document_id = ? AND testrun_number = ?",
         (document_id, testrun_number),
     )
+    d = _fetchone_dict(cur)
+    conn.close()
+    if not d:
+        return None
+    d["state"] = json.loads(d.pop("state_json"))
+    return d
+
+
+def get_testrun_by_extid(extid: str) -> dict | None:
+    conn = _connect()
+    cur = conn.execute("SELECT * FROM testruns WHERE extid = ?", (extid,))
     d = _fetchone_dict(cur)
     conn.close()
     if not d:
@@ -444,12 +573,61 @@ def update_testrun(
     conn.commit()
 
     cur2 = conn.execute(
-        """SELECT id, document_id, testrun_number, testrun_type,
+        """SELECT id, extid, document_id, testrun_number, testrun_type,
                   endpoint_count, drift_count, ok_count, state_hash, created_at, updated_at
            FROM testruns WHERE document_id = ? AND testrun_number = ?""",
         (document_id, testrun_number),
     )
     testrun = _fetchone_dict(cur2)
+    conn.close()
+    return testrun
+
+
+def update_testrun_by_extid(testrun_extid: str, state: dict) -> dict | None:
+    """Update a testrun identified by extid."""
+    now = _now()
+    summary = _summarize_state(state)
+    state_hash = _hash_state(state)
+    state_json = json.dumps(state)
+    conn = _connect()
+    cur = conn.execute(
+        """UPDATE testruns
+           SET state_json = ?, state_hash = ?, endpoint_count = ?,
+               drift_count = ?, ok_count = ?, updated_at = ?
+           WHERE extid = ? AND deleted_at IS NULL""",
+        (
+            state_json,
+            state_hash,
+            summary["endpoint_count"],
+            summary["drift_count"],
+            summary["ok_count"],
+            now,
+            testrun_extid,
+        ),
+    )
+    if cur.rowcount == 0:
+        conn.close()
+        return None
+
+    # Get the testrun to find its document_id and update document timestamp
+    cur2 = conn.execute(
+        "SELECT document_id FROM testruns WHERE extid = ?", (testrun_extid,)
+    )
+    tr = _fetchone_dict(cur2)
+    if tr:
+        conn.execute(
+            "UPDATE documents SET updated_at = ? WHERE id = ?",
+            (now, tr["document_id"]),
+        )
+    conn.commit()
+
+    cur3 = conn.execute(
+        """SELECT id, extid, document_id, testrun_number, testrun_type,
+                  endpoint_count, drift_count, ok_count, state_hash, created_at, updated_at
+           FROM testruns WHERE extid = ?""",
+        (testrun_extid,),
+    )
+    testrun = _fetchone_dict(cur3)
     conn.close()
     return testrun
 
@@ -466,34 +644,56 @@ def soft_delete_testrun(document_id: int, testrun_number: int) -> bool:
     return affected > 0
 
 
+def soft_delete_testrun_by_extid(testrun_extid: str) -> bool:
+    conn = _connect()
+    cur = conn.execute(
+        "UPDATE testruns SET deleted_at = ? WHERE extid = ? AND deleted_at IS NULL",
+        (_now(), testrun_extid),
+    )
+    conn.commit()
+    affected = cur.rowcount
+    conn.close()
+    return affected > 0
+
+
 # ── Combined save operation ──
 
 
 def save(
     state: dict,
     document_id: int | None = None,
+    document_extid: str | None = None,
     testrun_type: str = "save",
     testrun_number: int | None = None,
+    testrun_extid: str | None = None,
     session_hash: str = None,
 ) -> dict:
     title = state.get("title") or "Untitled"
 
-    if document_id is None:
+    # Resolve document by extid if provided
+    doc = None
+    if document_extid:
+        doc = get_document_by_extid(document_extid)
+    elif document_id is not None:
+        doc = get_document(document_id)
+
+    if doc is None:
         doc = create_document(title, session_hash=session_hash)
     else:
-        doc = get_document(document_id)
-        if not doc:
-            doc = create_document(title, session_hash=session_hash)
-        else:
-            if title != doc["title"]:
-                update_document_title(doc["id"], title)
-                doc["title"] = title
+        if title != doc["title"]:
+            update_document_title(doc["id"], title)
+            doc["title"] = title
 
     # For explicit saves with an existing testrun, update in-place
-    if testrun_type == "save" and testrun_number:
-        updated = update_testrun(doc["id"], testrun_number, state)
-        if updated:
-            return {"document": doc, "testrun": updated}
+    if testrun_type == "save":
+        if testrun_extid:
+            updated = update_testrun_by_extid(testrun_extid, state)
+            if updated:
+                return {"document": doc, "testrun": updated}
+        elif testrun_number:
+            updated = update_testrun(doc["id"], testrun_number, state)
+            if updated:
+                return {"document": doc, "testrun": updated}
         # Fall through to create_testrun if update failed (deleted/missing)
 
     testrun = create_testrun(doc["id"], state, testrun_type)
