@@ -42,6 +42,11 @@ def create_app() -> FastAPI:
     async def index():
         return FileResponse(os.path.join(dist_dir, "index.html"))
 
+    # SPA fallback — serve index.html for /s/{token} session routes
+    @app.get("/s/{token:path}")
+    async def session_spa_fallback(token: str):
+        return FileResponse(os.path.join(dist_dir, "index.html"))
+
     # Vite puts hashed JS/CSS in dist/assets/
     app.mount(
         "/assets",

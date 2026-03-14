@@ -2,6 +2,7 @@
   import { auth, initAuth, setToken, clearToken, getToken } from '../stores/auth.svelte.js';
   import { apiGenerateToken, apiValidateToken } from '../../lib/api.js';
   import { resetDocuments } from '../stores/documents.svelte.js';
+  import { initVibe, setVibe } from '../stores/vibe.svelte.js';
 
   let { children } = $props();
 
@@ -15,9 +16,20 @@
   let copied = $state(false);
   let copiedBar = $state(false);
 
-  // Initialize auth from storage on mount
+  // Initialize auth from storage or URL on mount
   $effect(() => {
     initAuth();
+    initVibe();
+
+    // Check for /s/{token} in the URL
+    const match = window.location.pathname.match(/^\/s\/(.+)/);
+    if (match) {
+      const urlToken = decodeURIComponent(match[1]);
+      if (!auth.token) {
+        // Token from URL but not in storage — load it silently
+        setToken(urlToken, false);
+      }
+    }
   });
 
   // ── Landing page actions ──
@@ -30,6 +42,8 @@
       const data = await apiGenerateToken();
       generatedToken = data.token;
       setToken(data.token, rememberMe);
+      history.pushState(null, '', `/s/${encodeURIComponent(data.token)}`);
+      setVibe('new');
     } catch (err) {
       validationMessage = 'Failed to generate token: ' + err.message;
       validationError = true;
@@ -46,6 +60,7 @@
     validationError = false;
     try {
       setToken(value, rememberMe);
+      history.pushState(null, '', `/s/${encodeURIComponent(value)}`);
       const data = await apiValidateToken();
       if (data.documentCount > 0) {
         validationMessage = `Found ${data.documentCount} document${data.documentCount === 1 ? '' : 's'} for this token.`;
@@ -99,6 +114,8 @@
     generatedToken = null;
     validationMessage = '';
     validationError = false;
+    setVibe(null);
+    history.pushState(null, '', '/');
   }
 
   function maskedToken(token) {
@@ -148,7 +165,7 @@
           </p>
           <button
             class="mt-4 w-full bg-[#238636] border-[#2ea043] text-white px-4 py-2 rounded-md text-[0.85em] font-medium cursor-pointer hover:bg-[#2ea043]"
-            onclick={() => { generatedToken = null; }}
+            onclick={() => { generatedToken = null; setVibe('fresh'); }}
           >Continue to app</button>
         </div>
       {:else}
