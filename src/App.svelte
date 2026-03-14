@@ -13,7 +13,7 @@
   import { DD_VERSION } from '../lib/examples.js';
   import { stateFingerprint } from '../lib/state.js';
   import { encryptBlob, decryptBlob } from './lib/crypto.js';
-  import { getEncKey } from './stores/auth.svelte.js';
+  import { auth, getEncKey } from './stores/auth.svelte.js';
   import { apiSave, apiCompare, apiListDocuments, apiGetDocument, apiGetTestrun, apiUpdateDocumentTitle } from '../lib/api.js';
   import { toDiffPath } from '../lib/format.js';
   import { setNestedValue, flattenObj } from '../lib/params.js';
@@ -102,10 +102,9 @@
       : ''
   );
 
-  // ── Init on mount ──
+  // ── Event listeners on mount ──
   $effect(() => {
     parseRoute();
-    init();
     // Scroll listener for back-to-top
     const onScroll = () => { showBackToTop = window.scrollY > 400; };
     window.addEventListener('scroll', onScroll);
@@ -116,6 +115,18 @@
       window.removeEventListener('scroll', onScroll);
       window.removeEventListener('popstate', onPopState);
     };
+  });
+
+  // ── Init after auth is ready ──
+  // Wait for auth.authKey to be derived before calling init(), which makes
+  // authenticated API calls (apiListDocuments, etc.). The effect re-fires
+  // when authKey transitions from null to a value after initAuth() completes.
+  let initDone = false;
+  $effect(() => {
+    if (!auth.authKey) return;  // auth not ready yet — skip
+    if (initDone) return;       // already initialized
+    initDone = true;
+    init();
   });
 
   // ── Invalidate results when environment config changes ──
@@ -671,7 +682,7 @@
 
     <!-- Endpoint cards with group dividers -->
     <div class="mb-5">
-      {#each groupedEntries as entry, i (entry.type === 'card' ? `card-${entry.ep.extid || i}` : `div-${entry.group}`)}
+      {#each groupedEntries as entry, i (entry.type === 'card' ? `card-${entry.ep._localId}` : `div-${entry.group}`)}
         {#if entry.type === 'divider'}
           <div class="text-[0.75em] font-mono text-text-dim pt-2.5 pb-1 border-b border-edge mb-2 flex items-center gap-2">
             <span class="font-semibold text-text-primary">{entry.group}</span>

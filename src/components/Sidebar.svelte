@@ -111,10 +111,12 @@
   }
 
   async function newDocument() {
-    resetSession();
     await clearEndpoints();
+    resetSession();
     resetDocuments();
     resetUi();
+    // Restore server-side environments (including user-created ones) into
+    // local state, seeding defaults only if the server has none.
     await seedDefaultEnvironments();
     await addEndpoint();
     refreshSidebar();

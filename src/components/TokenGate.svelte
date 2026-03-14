@@ -2,6 +2,8 @@
   import { auth, initAuth, setTokenWithKeys, setExtid, clearToken, getToken, getExtid } from '../stores/auth.svelte.js';
   import { apiGenerateToken, apiValidateToken } from '../../lib/api.js';
   import { resetDocuments } from '../stores/documents.svelte.js';
+  import { clearEndpoints } from '../stores/endpoints.svelte.js';
+  import { resetSession } from '../stores/session.svelte.js';
   import { initVibe, setVibe } from '../stores/vibe.svelte.js';
 
   let { children } = $props();
@@ -152,9 +154,13 @@
     }
   }
 
-  function handleSignOut() {
-    clearToken();
+  async function handleSignOut() {
+    // Server-side cleanup first, while auth credentials are still available
+    await clearEndpoints();
+    resetSession();
     resetDocuments();
+    // Local cleanup — clears auth so no more server calls are possible
+    clearToken();
     tokenInput = '';
     generatedToken = null;
     validationMessage = '';

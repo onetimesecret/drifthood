@@ -47,7 +47,7 @@
 
   function syncToStore() {
     syncing = true;
-    updateEndpoint(endpoint.extid, { fieldValues: { ...fieldValues } });
+    updateEndpoint(endpoint._localId, { fieldValues: { ...fieldValues } });
     queueMicrotask(() => { syncing = false; });
   }
 

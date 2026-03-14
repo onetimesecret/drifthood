@@ -129,7 +129,12 @@ export async function createEnvironment(fields = {}) {
     created_at: serverEnv.created_at,
     updated_at: serverEnv.updated_at,
   };
-  session.environments.push(localEnv);
+  const existingIdx = session.environments.findIndex(e => e.extid === localEnv.extid);
+  if (existingIdx >= 0) {
+    session.environments[existingIdx] = localEnv; // update in place (backend returned existing)
+  } else {
+    session.environments.push(localEnv);
+  }
   return localEnv;
 }
 
@@ -196,8 +201,23 @@ export function getEnvB() {
 // and when creating a new document.
 export async function seedDefaultEnvironments() {
   try {
+    // Load existing environments from server first — local state is empty on
+    // every page refresh, so we must check the server to avoid creating dupes.
+    await loadEnvironments();
+
+    if (session.environments.length > 0) {
+      // Server already has environments; restore selections if possible
+      if (!session.selectedA && session.environments.length >= 1) {
+        session.selectedA = session.environments[0].extid;
+      }
+      if (!session.selectedB && session.environments.length >= 2) {
+        session.selectedB = session.environments[1].extid;
+      }
+      return;
+    }
+
     const cfg = await apiConfig();
-    if (cfg.default_environments && session.environments.length === 0) {
+    if (cfg.default_environments) {
       for (const envDef of cfg.default_environments) {
         await createEnvironment(envDef);
       }

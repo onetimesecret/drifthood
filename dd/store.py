@@ -907,11 +907,24 @@ def save(
 
 
 def create_environment(session_hash, extid=None, name='', blob_hash=None, encrypted_blob=None, blob_iv=None):
-    """Create a new environment. Server generates extid if not provided."""
+    """Create a new environment. Server generates extid if not provided.
+    If an environment with the same (session_hash, name) already exists,
+    return the existing record instead of creating a duplicate."""
+    conn = _connect()
+
+    # Uniqueness guard: return existing environment if (session_hash, name) matches
+    cur = conn.execute(
+        "SELECT * FROM environments WHERE session_hash = ? AND name = ?",
+        (session_hash, name),
+    )
+    existing = _fetchone_dict(cur)
+    if existing:
+        conn.close()
+        return existing
+
     now = _now()
     if extid is None:
         extid = uuid7()
-    conn = _connect()
     conn.execute(
         """INSERT INTO environments (extid, session_hash, name, blob_hash, encrypted_blob, blob_iv, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",

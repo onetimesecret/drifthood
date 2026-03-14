@@ -6,11 +6,15 @@ import { getEncKey } from './auth.svelte.js';
 import { apiListEndpoints, apiCreateEndpoint, apiUpdateEndpoint, apiDeleteEndpoint } from '../../lib/api.js';
 
 // Each endpoint object:
-// { extid, method, label, path, body, contentType, group, fieldsMode,
+// { extid, _localId, method, label, path, body, contentType, group, fieldsMode,
 //   cardFields: {fields, query_fields, path_fields} | null,
 //   fieldValues: {} | null,
 //   state: 'idle' | 'running' | 'done-ok' | 'done-drift',
 //   result: null | compareResult }
+//
+// _localId: a client-side UUID assigned at creation. Used for all local lookups
+// and keying so endpoints are uniquely addressable even before the server assigns
+// an extid. Never sent to the server or persisted in snapshots.
 export const endpoints = $state([]);
 
 // Fields that get encrypted in the blob (sensitive endpoint config)
@@ -36,6 +40,7 @@ async function decryptEpBlob(serverEp) {
   if (!serverEp.encrypted_blob || !serverEp.blob_iv) {
     return {
       extid: serverEp.extid,
+      _localId: crypto.randomUUID(),
       label: serverEp.label,
       group: serverEp.group,
       method: 'GET', path: '', body: '', contentType: '',
@@ -48,6 +53,7 @@ async function decryptEpBlob(serverEp) {
   const sensitive = JSON.parse(plaintext);
   return {
     extid: serverEp.extid,
+    _localId: crypto.randomUUID(),
     label: serverEp.label,
     group: serverEp.group,
     ...sensitive,
@@ -90,6 +96,7 @@ export async function addEndpoint(opts = {}) {
 
   const ep = {
     extid: null,
+    _localId: crypto.randomUUID(),
     method,
     label,
     path,
@@ -169,8 +176,8 @@ export async function saveEndpoint(ep) {
 /**
  * Update an endpoint locally and persist to server.
  */
-export function updateEndpoint(extid, updates) {
-  const ep = endpoints.find(ep => ep.extid === extid);
+export function updateEndpoint(id, updates) {
+  const ep = endpoints.find(e => e._localId === id || (id != null && e.extid === id));
   if (!ep) return;
   Object.assign(ep, updates);
 
@@ -188,8 +195,8 @@ export function updateEndpoint(extid, updates) {
 /**
  * Remove an endpoint locally and from the server.
  */
-export async function removeEndpoint(extid) {
-  const idx = endpoints.findIndex(ep => ep.extid === extid);
+export async function removeEndpoint(id) {
+  const idx = endpoints.findIndex(e => e._localId === id || (id != null && e.extid === id));
   if (idx === -1) return;
   const ep = endpoints[idx];
   endpoints.splice(idx, 1);
@@ -206,8 +213,8 @@ export async function removeEndpoint(extid) {
 /**
  * Find an endpoint by extid.
  */
-export function getEndpoint(extid) {
-  return endpoints.find(ep => ep.extid === extid);
+export function getEndpoint(id) {
+  return endpoints.find(e => e._localId === id || (id != null && e.extid === id));
 }
 
 /**
