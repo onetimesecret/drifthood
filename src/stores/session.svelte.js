@@ -1,3 +1,5 @@
+import { apiConfig } from '../../lib/api.js';
+
 // Svelte 5 runes — reactive state for session config
 //
 // Environments replace the old flat hostA/hostB/authA/authB/memoA/memoB fields.
@@ -68,4 +70,22 @@ export function getEnvA() {
 
 export function getEnvB() {
   return getEnvironment(session.selectedB);
+}
+
+// Fetch default environments from server config (HOST_A/HOST_B) and seed them
+// into the session. Called on fresh start and when creating a new document.
+export async function seedDefaultEnvironments() {
+  try {
+    const cfg = await apiConfig();
+    if (cfg.default_environments && session.environments.length === 0) {
+      for (const env of cfg.default_environments) {
+        const added = addEnvironment(env);
+        added.id = env.id;  // preserve server-assigned IDs
+      }
+      if (session.environments.length >= 2) {
+        session.selectedA = session.environments[0].id;
+        session.selectedB = session.environments[1].id;
+      }
+    }
+  } catch { /* config fetch failed, continue without defaults */ }
 }

@@ -3,7 +3,7 @@
   import { relativeTime, driftIndicator } from '../../lib/format.js';
   import { documents, resetDocuments, rememberLastDocument } from '../stores/documents.svelte.js';
   import { endpoints, addEndpoint, clearEndpoints, resetIdCounter } from '../stores/endpoints.svelte.js';
-  import { session, resetSession } from '../stores/session.svelte.js';
+  import { session, resetSession, seedDefaultEnvironments } from '../stores/session.svelte.js';
   import { ui, resetUi } from '../stores/ui.svelte.js';
   import { restore } from '../stores/snapshot.js';
   import { stateFingerprint } from '../../lib/state.js';
@@ -106,12 +106,13 @@
     }
   }
 
-  function newDocument() {
+  async function newDocument() {
     resetSession();
     clearEndpoints();
     resetIdCounter();
     resetDocuments();
     resetUi();
+    await seedDefaultEnvironments();
     addEndpoint();
     refreshSidebar();
   }

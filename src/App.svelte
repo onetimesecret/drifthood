@@ -11,10 +11,10 @@
 
   import { DD_VERSION } from '../lib/examples.js';
   import { stateFingerprint } from '../lib/state.js';
-  import { apiConfig, apiSave, apiCompare, apiListDocuments, apiGetDocument, apiGetTestrun, apiUpdateDocumentTitle } from '../lib/api.js';
+  import { apiSave, apiCompare, apiListDocuments, apiGetDocument, apiGetTestrun, apiUpdateDocumentTitle } from '../lib/api.js';
   import { toDiffPath } from '../lib/format.js';
   import { setNestedValue, flattenObj } from '../lib/params.js';
-  import { session, addEnvironment, getEnvA, getEnvB } from './stores/session.svelte.js';
+  import { session, addEnvironment, getEnvA, getEnvB, seedDefaultEnvironments } from './stores/session.svelte.js';
   import { endpoints, addEndpoint, clearResults } from './stores/endpoints.svelte.js';
   import { ui } from './stores/ui.svelte.js';
   import { documents, notifyDocumentsChanged, rememberLastDocument, recallLastDocument } from './stores/documents.svelte.js';
@@ -151,21 +151,8 @@
       }
     } catch { /* server not running */ }
 
-    // Fresh start — seed default environments from server config
-    try {
-      const cfg = await apiConfig();
-      if (cfg.default_environments && session.environments.length === 0) {
-        for (const env of cfg.default_environments) {
-          const added = addEnvironment(env);
-          // preserve the default IDs from the server
-          added.id = env.id;
-        }
-        if (session.environments.length >= 2) {
-          session.selectedA = session.environments[0].id;
-          session.selectedB = session.environments[1].id;
-        }
-      }
-    } catch { /* config fetch failed, continue without defaults */ }
+    // Fresh start — seed default environments from server config (HOST_A/HOST_B)
+    await seedDefaultEnvironments();
     addEndpoint();
   }
 
