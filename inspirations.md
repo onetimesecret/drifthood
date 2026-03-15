@@ -105,7 +105,13 @@ This changes the calculus on our #1 priority (response chaining). Instead of bui
 
 The Respect use-case framing is also worth noting: they position workflow descriptions as "living documentation that can provide deterministic consumption recipes, support SDK generation, and enable agentic API consumption." That last bit (agentic consumption) connects to the MCP trend below.
 
+#### Consider next
 
+  3. Response chaining (Arazzo workflows) — Highest impact but requires redesigning the stateless single-request
+compare
+   model into a sequenced run with variable capture between steps. That's an architectural change, not a feature
+  addition.
+  
 ### Optic (acquired by Atlassian, April 2024)
 
 **Status:** Integrated into Atlassian Compass (their developer experience platform). The open-source CLI remains at [github.com/opticdev/optic](https://github.com/opticdev/optic) but the community has raised questions about its future under Atlassian.
