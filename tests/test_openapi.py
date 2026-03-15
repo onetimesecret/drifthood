@@ -1521,6 +1521,42 @@ class TestEdgeCases:
         assert "username" in field_names
         assert "password" in field_names
 
+    def test_multipart_form_data_request_body(self):
+        spec = {
+            "openapi": "3.0.3",
+            "info": {"title": "Test", "version": "1.0"},
+            "paths": {
+                "/share": {
+                    "post": {
+                        "operationId": "shareSecret",
+                        "requestBody": {
+                            "content": {
+                                "multipart/form-data": {
+                                    "schema": {
+                                        "type": "object",
+                                        "required": ["secret"],
+                                        "properties": {
+                                            "secret": {"type": "string"},
+                                            "passphrase": {"type": "string"},
+                                            "ttl": {"type": "integer"},
+                                        },
+                                    }
+                                }
+                            }
+                        },
+                        "responses": {"200": {"description": "OK"}},
+                    }
+                }
+            },
+        }
+        result = parse_openapi(json.dumps(spec))
+        op = result["operations"][0]
+        assert op["content_type"] == "multipart/form-data"
+        field_names = {f["name"] for f in op["fields"]}
+        assert "secret" in field_names
+        assert "passphrase" in field_names
+        assert "ttl" in field_names
+
     def test_large_spec_from_static_file(self):
         """Smoke test: parse the real production-size spec without errors."""
         import os

@@ -289,6 +289,11 @@ def parse_openapi(raw: str) -> dict:
                     body_hint = extract_example_body(schema, spec)
                     content_type = "application/x-www-form-urlencoded"
                     fields = extract_fields(schema, spec)
+                elif "multipart/form-data" in content:
+                    schema = content["multipart/form-data"].get("schema", {})
+                    body_hint = extract_example_body(schema, spec)
+                    content_type = "multipart/form-data"
+                    fields = extract_fields(schema, spec)
 
             # Swagger 2.0: body/formData parameters
             params = op.get("parameters", []) + path_item.get("parameters", [])
