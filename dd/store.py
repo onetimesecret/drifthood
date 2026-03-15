@@ -107,6 +107,27 @@ def init_db():
     """
     conn = _connect()
 
+    # Migration: rename old sessions -> testruns (for existing DBs)
+    # Must run BEFORE creating the new sessions table, because the old
+    # sessions table (which has state_json/document_id columns) would
+    # satisfy the CREATE TABLE IF NOT EXISTS but lacks session_hash,
+    # causing the subsequent CREATE INDEX on sessions(session_hash) to fail.
+    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'")
+    old_sessions = cursor.fetchone()
+    if old_sessions:
+        cols_cursor = conn.execute("PRAGMA table_info(sessions)")
+        col_names = [row[1] if isinstance(row, tuple) else row["name"] for row in cols_cursor.fetchall()]
+        if "state_json" in col_names:
+            # This is the old sessions table — rename to testruns
+            testruns_check = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='testruns'")
+            if not testruns_check.fetchone():
+                conn.execute("ALTER TABLE sessions RENAME TO testruns")
+                conn.execute("ALTER TABLE testruns RENAME COLUMN session_number TO testrun_number")
+                conn.execute("ALTER TABLE testruns RENAME COLUMN session_type TO testrun_type")
+                conn.execute("DROP INDEX IF EXISTS idx_sessions_doc")
+                conn.execute("CREATE INDEX IF NOT EXISTS idx_testruns_doc ON testruns(document_id)")
+                conn.commit()
+
     # ── Sessions table (new) ──
     conn.execute("""
         CREATE TABLE IF NOT EXISTS sessions (
@@ -161,25 +182,6 @@ def init_db():
         "CREATE INDEX IF NOT EXISTS idx_documents_session_hash ON documents(session_hash)"
     )
     conn.commit()
-
-    # Migration: rename sessions -> testruns (for existing DBs)
-    cursor = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='sessions'")
-    old_sessions = cursor.fetchone()
-    if old_sessions:
-        # Check if this is the OLD sessions table (renamed to testruns) vs our NEW sessions table
-        # The old sessions table had state_json; the new one has session_hash
-        cols_cursor = conn.execute("PRAGMA table_info(sessions)")
-        col_names = [row[1] if isinstance(row, tuple) else row["name"] for row in cols_cursor.fetchall()]
-        if "state_json" in col_names:
-            # This is the old sessions table — rename to testruns
-            testruns_check = conn.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='testruns'")
-            if not testruns_check.fetchone():
-                conn.execute("ALTER TABLE sessions RENAME TO testruns")
-                conn.execute("ALTER TABLE testruns RENAME COLUMN session_number TO testrun_number")
-                conn.execute("ALTER TABLE testruns RENAME COLUMN session_type TO testrun_type")
-                conn.execute("DROP INDEX IF EXISTS idx_sessions_doc")
-                conn.execute("CREATE INDEX IF NOT EXISTS idx_testruns_doc ON testruns(document_id)")
-                conn.commit()
 
     # Migration: add session_hash column to documents
     cursor = conn.execute("PRAGMA table_info(documents)")
@@ -908,20 +910,8 @@ def save(
 
 def create_environment(session_hash, extid=None, name='', blob_hash=None, encrypted_blob=None, blob_iv=None):
     """Create a new environment. Server generates extid if not provided.
-    If an environment with the same (session_hash, name) already exists,
-    return the existing record instead of creating a duplicate."""
+    Each environment is uniquely identified by its extid only."""
     conn = _connect()
-
-    # Uniqueness guard: return existing environment if (session_hash, name) matches
-    cur = conn.execute(
-        "SELECT * FROM environments WHERE session_hash = ? AND name = ?",
-        (session_hash, name),
-    )
-    existing = _fetchone_dict(cur)
-    if existing:
-        conn.close()
-        return existing
-
     now = _now()
     if extid is None:
         extid = uuid7()

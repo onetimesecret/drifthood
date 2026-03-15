@@ -131,7 +131,7 @@ async def get_testrun(doc_extid: str, testrun_extid: str, request: Request):
     if not doc or doc.get("session_hash") != session_hash:
         raise HTTPException(status_code=404, detail="Document not found")
     testrun = store.get_testrun_by_extid(testrun_extid)
-    if not testrun:
+    if not testrun or testrun["document_id"] != doc["id"]:
         raise HTTPException(status_code=404, detail="Testrun not found")
     return {"testrun": _ext_testrun(testrun)}
 
@@ -143,6 +143,9 @@ async def delete_testrun(doc_extid: str, testrun_extid: str, request: Request):
     doc = store.get_document_by_extid(doc_extid)
     if not doc or doc.get("session_hash") != session_hash:
         raise HTTPException(status_code=404, detail="Document not found")
+    testrun = store.get_testrun_by_extid(testrun_extid)
+    if not testrun or testrun["document_id"] != doc["id"]:
+        raise HTTPException(status_code=404, detail="Testrun not found")
     ok = store.soft_delete_testrun_by_extid(testrun_extid)
     if not ok:
         raise HTTPException(status_code=404, detail="Testrun not found or already deleted")

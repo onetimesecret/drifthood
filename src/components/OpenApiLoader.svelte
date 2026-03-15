@@ -1,7 +1,7 @@
 <script>
   import Modal from './Modal.svelte';
   import { apiParseOpenapi } from '../../lib/api.js';
-  import { addEndpoint, clearEndpoints } from '../stores/endpoints.svelte.js';
+  import { addEndpoint, clearEndpointsLocal } from '../stores/endpoints.svelte.js';
   import { session } from '../stores/session.svelte.js';
 
   let { open, onclose } = $props();
@@ -88,7 +88,7 @@
       });
     });
     if (!sel.length) return;
-    await clearEndpoints();
+    clearEndpointsLocal();
     for (const op of sel) {
       let body = op.body || '';
       if (op.content_type === 'application/json' && body && body.includes('=')) {

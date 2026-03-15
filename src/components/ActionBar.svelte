@@ -4,7 +4,7 @@
   import { toDiffPath } from '../../lib/format.js';
   import { setNestedValue, flattenObj } from '../../lib/params.js';
   import { runConcurrent } from '../../lib/concurrent.js';
-  import { endpoints, addEndpoint, clearEndpoints, clearResults } from '../stores/endpoints.svelte.js';
+  import { endpoints, addEndpoint, clearEndpointsLocal, clearResults } from '../stores/endpoints.svelte.js';
   import { session, getEnvA, getEnvB } from '../stores/session.svelte.js';
   import { ui } from '../stores/ui.svelte.js';
   import { snapshotLegacy, restore } from '../stores/snapshot.js';
@@ -45,7 +45,7 @@
   }
 
   async function loadExampleSet(name) {
-    await clearEndpoints();
+    clearEndpointsLocal();
     for (const r of (EXAMPLES[name] || [])) {
       await addEndpoint({ method: r.m, label: r.l, path: r.p, body: r.b, contentType: r.ct });
     }

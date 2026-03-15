@@ -1,5 +1,5 @@
 import { session, resetSession } from './session.svelte.js';
-import { endpoints, addEndpoint, clearEndpoints } from './endpoints.svelte.js';
+import { endpoints, addEndpoint, clearEndpointsLocal } from './endpoints.svelte.js';
 import { ui } from './ui.svelte.js';
 import { documents } from './documents.svelte.js';
 
@@ -107,7 +107,7 @@ export function snapshotLegacy() {
 export async function restore(snap, sensitive = null) {
   // Reset everything first
   resetSession();
-  await clearEndpoints();
+  clearEndpointsLocal();
 
   // If we have sensitive data (from decrypted blob), use it
   if (sensitive) {
@@ -145,7 +145,7 @@ export async function restore(snap, sensitive = null) {
   // Restore endpoints from snap (backward compat with inline endpoints)
   if (snap.endpoints?.length) {
     for (const ep of snap.endpoints) {
-      addEndpoint({
+      await addEndpoint({
         method: ep.method,
         label: ep.label,
         path: ep.path,
@@ -156,6 +156,15 @@ export async function restore(snap, sensitive = null) {
         cardFields: ep.cardFields || null,
         fieldValues: ep.fieldValues || null,
       });
+      // Restore run state and result if present in the snapshot
+      if (ep.state && ep.state !== 'idle') {
+        // addEndpoint pushes to the end; find the last endpoint added
+        const restored = endpoints[endpoints.length - 1];
+        if (restored) {
+          restored.state = ep.state;
+          restored.result = ep.result || null;
+        }
+      }
     }
   }
   // If manifest-style (endpoint_extids), endpoints are loaded separately via loadEndpoints()

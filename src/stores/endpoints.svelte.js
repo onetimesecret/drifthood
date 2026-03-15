@@ -218,7 +218,17 @@ export function getEndpoint(id) {
 }
 
 /**
+ * Clear all endpoints from local state only. No server calls.
+ * Use this for UI resets (snapshot restore, import, new doc) where
+ * server entities should be preserved.
+ */
+export function clearEndpointsLocal() {
+  endpoints.splice(0, endpoints.length);
+}
+
+/**
  * Clear all endpoints locally and from the server.
+ * Use only when genuinely deleting server entities (e.g. sign-out).
  */
 export async function clearEndpoints() {
   const encKey = getEncKey();
