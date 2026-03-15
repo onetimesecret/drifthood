@@ -6,6 +6,7 @@ OpenAPI spec parsing and schema diff routes.
 
 import json
 from collections import defaultdict
+from difflib import SequenceMatcher
 
 import requests as req
 import yaml
@@ -17,27 +18,69 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Schema helpers
 # ---------------------------------------------------------------------------
-def resolve_ref(obj: dict, spec: dict) -> dict:
-    """Resolve a single $ref pointer."""
+def resolve_ref(obj: dict, spec: dict, _seen: set | None = None) -> dict:
+    """Resolve $ref pointers recursively with cycle detection.
+
+    Follows ref chains (e.g. requestBody.$ref -> schema.$ref) until stable.
+    Tracks visited ref paths to prevent infinite loops on recursive schemas.
+    """
+    if _seen is None:
+        _seen = set()
+
     ref = obj.get("$ref")
     if not ref or not ref.startswith("#/"):
         return obj
+
+    # Cycle detection: if we've already visited this ref, stop
+    if ref in _seen:
+        return obj
+    _seen.add(ref)
+
     parts = ref.lstrip("#/").split("/")
     node = spec
     for p in parts:
         node = node.get(p, {})
-    return node if isinstance(node, dict) else obj
+
+    if not isinstance(node, dict):
+        return obj
+
+    # If the resolved node itself contains a $ref, resolve it too
+    if "$ref" in node:
+        node = resolve_ref(node, spec, _seen)
+
+    return node
 
 
 def extract_fields(schema: dict, spec: dict, prefix: str = "") -> list[dict]:
     """Walk a schema and return a flat list of field descriptors.
 
-    Each field: {name, path, type, required, example, enum, const, min, max, nested, description}
+    Each field: {name, path, type, required, example, enum, const, min, max,
+                 nested, description, format, drift_ignore}
     Nested objects get flattened with dot-separated paths so the UI can render them
     as grouped inputs (secret.kind, secret.ttl, etc.)."""
     if not schema:
         return []
     schema = resolve_ref(schema, spec)
+
+    # allOf: merge all sub-schemas' properties and required arrays
+    if "allOf" in schema and not schema.get("properties"):
+        merged_props = {}
+        merged_required = list(schema.get("required", []))
+        for sub in schema["allOf"]:
+            sub = resolve_ref(sub, spec)
+            merged_props.update(sub.get("properties", {}))
+            merged_required.extend(sub.get("required", []))
+        schema = {**schema, "properties": merged_props, "required": merged_required}
+
+    # oneOf: pick the first branch that has properties
+    if "oneOf" in schema and not schema.get("properties"):
+        for branch in schema["oneOf"]:
+            branch = resolve_ref(branch, spec)
+            if branch.get("properties"):
+                schema = {**schema, "properties": branch["properties"],
+                          "required": list(schema.get("required", [])) + list(branch.get("required", []))}
+                break
+
     props = schema.get("properties", {})
     if not props:
         return []
@@ -54,6 +97,12 @@ def extract_fields(schema: dict, spec: dict, prefix: str = "") -> list[dict]:
                     ftype = branch["type"]
                     prop = {**prop, **branch}
                     break
+        fmt = prop.get("format", "")
+        # Detect fields that should be auto-ignored in drift comparison
+        drift_ignore = bool(
+            prop.get("x-drift-ignore")
+            or fmt in ("date-time", "date", "time", "uuid", "uri")
+        )
         field = {
             "name": name,
             "path": path,
@@ -63,6 +112,8 @@ def extract_fields(schema: dict, spec: dict, prefix: str = "") -> list[dict]:
             "enum": prop.get("enum"),
             "const": prop.get("const"),
             "description": prop.get("description", ""),
+            "format": fmt,
+            "drift_ignore": drift_ignore,
         }
         if ftype in ("integer", "number"):
             if "minimum" in prop:
@@ -137,6 +188,17 @@ def parse_openapi(raw: str) -> dict:
             "(missing 'paths', 'openapi', or 'swagger' keys)"
         )
 
+    # Explicit version detection
+    spec_version = spec.get("openapi", spec.get("swagger", "unknown"))
+    is_openapi3 = spec_version.startswith("3.")
+    is_openapi32_plus = False
+    if is_openapi3:
+        try:
+            minor = int(spec_version.split(".")[1])
+            is_openapi32_plus = minor >= 2
+        except (IndexError, ValueError):
+            pass
+
     info = spec.get("info", {})
     base_path = ""
 
@@ -159,7 +221,7 @@ def parse_openapi(raw: str) -> dict:
     for path_template, path_item in paths.items():
         if not isinstance(path_item, dict):
             continue
-        for method in [
+        http_methods = [
             "get",
             "post",
             "put",
@@ -167,7 +229,11 @@ def parse_openapi(raw: str) -> dict:
             "patch",
             "head",
             "options",
-        ]:
+        ]
+        # OpenAPI 3.2+ adds the QUERY method
+        if is_openapi32_plus:
+            http_methods.append("query")
+        for method in http_methods:
             op = path_item.get(method)
             if not op:
                 continue
@@ -233,6 +299,29 @@ def parse_openapi(raw: str) -> dict:
             if form_parts and not body_hint:
                 body_hint = "&".join(form_parts)
 
+            # Response schemas: extract fields from responses section
+            response_fields = {}
+            responses = op.get("responses", {})
+            for status_code, resp_obj in responses.items():
+                if not isinstance(resp_obj, dict):
+                    continue
+                resp_obj = resolve_ref(resp_obj, spec)
+                # OpenAPI 3.x: content.<media-type>.schema
+                resp_content = resp_obj.get("content", {})
+                if "application/json" in resp_content:
+                    resp_schema = resp_content["application/json"].get(
+                        "schema", {}
+                    )
+                    rf = extract_fields(resp_schema, spec)
+                    if rf:
+                        response_fields[str(status_code)] = rf
+                # Swagger 2.0: schema directly on the response object
+                elif "schema" in resp_obj and not resp_content:
+                    resp_schema = resp_obj.get("schema", {})
+                    rf = extract_fields(resp_schema, spec)
+                    if rf:
+                        response_fields[str(status_code)] = rf
+
             # Query params
             query_parts = []
             query_fields = []
@@ -247,7 +336,10 @@ def parse_openapi(raw: str) -> dict:
                         {
                             "name": name,
                             "path": name,
-                            "type": param.get("type", "string"),
+                            "type": param.get(
+                                "type",
+                                param.get("schema", {}).get("type", "string"),
+                            ),
                             "required": param.get("required", False),
                             "example": param.get(
                                 "example", param.get("default")
@@ -287,6 +379,30 @@ def parse_openapi(raw: str) -> dict:
                         }
                     )
 
+            # Resolve security schemes for this operation
+            security_schemes = []
+            op_security = op.get("security", spec.get("security", []))
+            components_security = spec.get("components", {}).get(
+                "securitySchemes", {}
+            )
+            # Swagger 2.0 uses top-level securityDefinitions
+            if not components_security:
+                components_security = spec.get("securityDefinitions", {})
+            for sec_req in op_security:
+                if isinstance(sec_req, dict):
+                    for scheme_name in sec_req:
+                        scheme_def = components_security.get(scheme_name, {})
+                        scheme_def = resolve_ref(scheme_def, spec)
+                        security_schemes.append(
+                            {
+                                "name": scheme_name,
+                                "type": scheme_def.get("type", "unknown"),
+                                "scheme": scheme_def.get("scheme", ""),
+                                "in": scheme_def.get("in", ""),
+                                "scopes": sec_req[scheme_name],
+                            }
+                        )
+
             operations.append(
                 {
                     "method": method.upper(),
@@ -301,6 +417,8 @@ def parse_openapi(raw: str) -> dict:
                     "fields": fields,
                     "query_fields": query_fields,
                     "path_fields": path_fields,
+                    "response_fields": response_fields,
+                    "security": security_schemes,
                 }
             )
 
@@ -309,6 +427,7 @@ def parse_openapi(raw: str) -> dict:
     return {
         "title": info.get("title", "Unknown API"),
         "version": info.get("version", ""),
+        "spec_version": spec_version,
         "base_path": base_path,
         "total_operations": len(operations),
         "groups": groups,
@@ -409,6 +528,11 @@ def diff_operation_fields(fields_a: list[dict], fields_b: list[dict]) -> dict:
     for r in removed:
         for a in added:
             if r["type"] == a["type"] and r["name"] != a["name"]:
+                similarity = SequenceMatcher(
+                    None, r["name"].lower(), a["name"].lower()
+                ).ratio()
+                if similarity < 0.4:
+                    continue
                 possible_renames.append(
                     {
                         "old_path": r["path"],
@@ -416,6 +540,7 @@ def diff_operation_fields(fields_a: list[dict], fields_b: list[dict]) -> dict:
                         "old_name": r["name"],
                         "new_name": a["name"],
                         "type": r["type"],
+                        "similarity": round(similarity, 2),
                     }
                 )
 
@@ -426,6 +551,42 @@ def diff_operation_fields(fields_a: list[dict], fields_b: list[dict]) -> dict:
         "const_changed": const_changed,
         "possible_renames": possible_renames,
     }
+
+
+def diff_response_fields(
+    resp_a: dict[str, list[dict]], resp_b: dict[str, list[dict]]
+) -> dict:
+    """Diff response schemas between two specs, keyed by status code.
+
+    Returns per-status-code diffs plus overall has_changes flag."""
+    codes_a = set(resp_a.keys())
+    codes_b = set(resp_b.keys())
+
+    per_code = {}
+    has_changes = False
+
+    # Status codes added/removed
+    for code in sorted(codes_b - codes_a):
+        per_code[code] = {"status": "added_in_b", "fields": resp_b[code], "diff": {}}
+        has_changes = True
+    for code in sorted(codes_a - codes_b):
+        per_code[code] = {"status": "removed_from_b", "fields": resp_a[code], "diff": {}}
+        has_changes = True
+
+    # Shared status codes: diff the field lists
+    for code in sorted(codes_a & codes_b):
+        d = diff_operation_fields(resp_a[code], resp_b[code])
+        code_has_changes = any(d[k] for k in d)
+        if code_has_changes:
+            has_changes = True
+        per_code[code] = {
+            "status": "changed" if code_has_changes else "identical",
+            "fields_a": resp_a[code],
+            "fields_b": resp_b[code],
+            "diff": d,
+        }
+
+    return {"per_code": per_code, "has_changes": has_changes}
 
 
 # ---------------------------------------------------------------------------
@@ -526,10 +687,19 @@ async def diff_schemas(
                 }
             )
         else:
+            assert op_a is not None and op_b is not None
             fields_a = op_a.get("fields", [])
             fields_b = op_b.get("fields", [])
             diff = diff_operation_fields(fields_a, fields_b)
-            has_changes = any(diff[k] for k in diff)
+
+            # Diff response schemas across all status codes
+            resp_a = op_a.get("response_fields", {})
+            resp_b = op_b.get("response_fields", {})
+            resp_diff = diff_response_fields(resp_a, resp_b)
+
+            has_changes = any(diff[k] for k in diff) or resp_diff.get(
+                "has_changes", False
+            )
             results.append(
                 {
                     "method": method,
@@ -538,6 +708,9 @@ async def diff_schemas(
                     "fields_a": fields_a,
                     "fields_b": fields_b,
                     "diff": diff,
+                    "response_fields_a": resp_a,
+                    "response_fields_b": resp_b,
+                    "response_diff": resp_diff,
                 }
             )
 

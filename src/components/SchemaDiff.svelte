@@ -74,6 +74,10 @@
     onclose();
   }
 
+  function hasResponseDiff(r) {
+    return r.response_diff && r.response_diff.has_changes;
+  }
+
   let interesting = $derived(
     results ? results.results.filter(r => r.status !== 'identical') : []
   );
@@ -81,13 +85,13 @@
 
 <Modal open={open} onclose={handleClose} maxWidth="900px">
   <div class="flex items-center justify-between px-[18px] py-3.5 border-b border-edge">
-    <h3 class="text-[0.95em] font-semibold">Diff Request Schemas</h3>
+    <h3 class="text-[0.95em] font-semibold">Diff Request &amp; Response Schemas</h3>
     <button class="bg-transparent border-none text-text-dim cursor-pointer text-[1.3em] px-1 rounded hover:text-red" onclick={handleClose}>&times;</button>
   </div>
 
   <div class="p-[18px] overflow-y-auto flex-1">
     <p class="text-[0.8em] text-text-dim mb-3">
-      Compare request schemas between two OpenAPI specs to detect field-level changes.
+      Compare request and response schemas between two OpenAPI specs to detect field-level changes.
     </p>
 
     <div class="grid grid-cols-2 gap-4 mb-3">
@@ -205,8 +209,53 @@
                       {/each}
                     </div>
                   {/if}
-                  {#if !r.diff.possible_renames?.length && !r.diff.added?.length && !r.diff.removed?.length && !r.diff.type_changed?.length && !r.diff.const_changed?.length}
+                  {#if !r.diff.possible_renames?.length && !r.diff.added?.length && !r.diff.removed?.length && !r.diff.type_changed?.length && !r.diff.const_changed?.length && !hasResponseDiff(r)}
                     <div class="text-text-dim">No field-level differences.</div>
+                  {/if}
+
+                  {#if hasResponseDiff(r)}
+                    <div class="mt-3 pt-2 border-t border-edge">
+                      <h5 class="text-[0.85em] text-text-dim uppercase tracking-wider mb-1">Response Schema Changes</h5>
+                      {#each Object.entries(r.response_diff.per_code || {}) as [code, codeDiff]}
+                        {#if codeDiff.status !== 'identical'}
+                          <div class="mb-2 ml-2">
+                            <div class="text-[0.85em] font-mono mb-0.5">
+                              <span class="font-semibold">{code}</span>
+                              <span class="text-text-dim ml-1 text-[0.85em] uppercase">{codeDiff.status.replace('_', ' ')}</span>
+                            </div>
+                            {#if codeDiff.status === 'added_in_b' && codeDiff.fields}
+                              {#each codeDiff.fields as f}
+                                <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-green ml-2">&plus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''})</span></div>
+                              {/each}
+                            {:else if codeDiff.status === 'removed_from_b' && codeDiff.fields}
+                              {#each codeDiff.fields as f}
+                                <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-red ml-2">&minus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''})</span></div>
+                              {/each}
+                            {:else if codeDiff.diff}
+                              {#if codeDiff.diff.added?.length}
+                                {#each codeDiff.diff.added as f}
+                                  <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-green ml-2">&plus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''})</span></div>
+                                {/each}
+                              {/if}
+                              {#if codeDiff.diff.removed?.length}
+                                {#each codeDiff.diff.removed as f}
+                                  <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-red ml-2">&minus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''})</span></div>
+                                {/each}
+                              {/if}
+                              {#if codeDiff.diff.type_changed?.length}
+                                {#each codeDiff.diff.type_changed as tc}
+                                  <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg ml-2">
+                                    <span class="text-yellow">{tc.path}</span>:
+                                    <span class="text-red">{tc.type_a}</span> &rarr;
+                                    <span class="text-green">{tc.type_b}</span>
+                                  </div>
+                                {/each}
+                              {/if}
+                            {/if}
+                          </div>
+                        {/if}
+                      {/each}
+                    </div>
                   {/if}
                 {/if}
               </div>

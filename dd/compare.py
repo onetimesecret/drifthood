@@ -7,6 +7,7 @@ Also contains the HTTP client helper (hit) and request models.
 
 import json
 from datetime import datetime, timezone
+from collections.abc import Sequence
 from typing import Optional
 
 import requests as req
@@ -14,7 +15,7 @@ from deepdiff import DeepDiff
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from dd.config import DEFAULT_ENVIRONMENTS, DEFAULT_IGNORE, HOST_A, HOST_B, VERIFY_SSL
+from dd.config import DEFAULT_ENVIRONMENTS, DEFAULT_IGNORE, HOST_A, HOST_B, VERIFY_SSL, TEMPORAL_FORMATS
 
 router = APIRouter()
 
@@ -22,6 +23,15 @@ router = APIRouter()
 # ---------------------------------------------------------------------------
 # Models
 # ---------------------------------------------------------------------------
+class ResponseSchemaField(BaseModel):
+    """A single field from a parsed response schema."""
+    name: str
+    path: str
+    type: str
+    required: bool = False
+    nested: bool = False
+
+
 class CompareRequest(BaseModel):
     label: str
     method: str  # GET, POST, PUT, DELETE
@@ -38,6 +48,10 @@ class CompareRequest(BaseModel):
     auth_a: Optional[str] = None  # "user:token" for host A
     auth_b: Optional[str] = None  # "user:token" for host B
     ignore_paths: Optional[list[str]] = None
+    response_schema: Optional[dict[str, list[ResponseSchemaField]]] = (
+        None  # keyed by status code, e.g. {"200": [...fields]}
+    )
+    extra_ignore_paths: Optional[list[str]] = None  # spec-derived ignore paths
 
 
 class BatchRequest(BaseModel):
@@ -83,11 +97,11 @@ def hit(
     if content_type and content_type != "query" and not json_body:
         headers["Content-Type"] = content_type
 
-    auth_tuple = None
+    auth_tuple: tuple[str, str] | None = None
     if auth:
         parts = auth.split(":", 1)
         if len(parts) == 2:
-            auth_tuple = tuple(parts)
+            auth_tuple = (parts[0], parts[1])
 
     try:
         r = req.request(
@@ -134,6 +148,75 @@ def hit(
         }
 
 
+def _python_type_name(value) -> str:
+    """Return a simplified type name for a Python value."""
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return type(value).__name__
+
+
+def _type_matches(expected_type: str, actual_type: str) -> bool:
+    """Check if an actual Python type matches an expected OpenAPI type."""
+    if expected_type == actual_type:
+        return True
+    if expected_type == "number" and actual_type in ("integer", "number"):
+        return True
+    return False
+
+
+def _get_nested(body: dict, dotted_path: str):
+    """Walk a dict by dotted path. Returns (found, value)."""
+    parts = dotted_path.split(".")
+    node = body
+    for p in parts:
+        if not isinstance(node, dict) or p not in node:
+            return False, None
+        node = node[p]
+    return True, node
+
+
+def validate_response_against_schema(
+    response: dict, schema_fields: Sequence[dict]
+) -> list[dict]:
+    """Validate a response body against parsed schema fields."""
+    body = response.get("body")
+    if not isinstance(body, dict):
+        return []
+
+    results = []
+    for f in schema_fields:
+        if f.get("nested"):
+            continue
+        path = f["path"]
+        expected_type = f["type"]
+        present, value = _get_nested(body, path)
+        actual_type = _python_type_name(value) if present else None
+        conforms = present and _type_matches(expected_type, actual_type or "")
+        results.append(
+            {
+                "field": path,
+                "expected_type": expected_type,
+                "actual_type": actual_type,
+                "present": present,
+                "conforms": conforms,
+                "required": f.get("required", False),
+            }
+        )
+    return results
+
+
 def do_compare(
     host_a: str,
     host_b: str,
@@ -145,6 +228,8 @@ def do_compare(
         ignore.extend(global_ignore)
     if cr.ignore_paths:
         ignore.extend(cr.ignore_paths)
+    if cr.extra_ignore_paths:
+        ignore.extend(cr.extra_ignore_paths)
 
     a = hit(
         host_a,
@@ -171,7 +256,7 @@ def do_compare(
         comparable_a, comparable_b, ignore_order=True, exclude_paths=ignore
     )
 
-    return {
+    result = {
         "label": cr.label,
         "method": cr.method,
         "path": cr.path,
@@ -184,6 +269,25 @@ def do_compare(
         "captured_at": datetime.now(timezone.utc).isoformat(),
     }
 
+    # Spec-conformance validation
+    if cr.response_schema:
+        conformance = {}
+        for resp_label, resp in [("a", a), ("b", b)]:
+            status_str = str(resp.get("status", ""))
+            schema_fields = cr.response_schema.get(status_str)
+            if schema_fields:
+                fields_dicts: list[dict] = [
+                    f.model_dump() if isinstance(f, ResponseSchemaField) else f
+                    for f in schema_fields
+                ]
+                conformance[resp_label] = validate_response_against_schema(
+                    resp, fields_dicts
+                )
+        if conformance:
+            result["conformance"] = conformance
+
+    return result
+
 
 # ---------------------------------------------------------------------------
 # Routes
@@ -193,6 +297,7 @@ async def get_config():
     return {
         "default_environments": DEFAULT_ENVIRONMENTS,
         "default_ignore": DEFAULT_IGNORE,
+        "temporal_formats": sorted(TEMPORAL_FORMATS),
     }
 
 

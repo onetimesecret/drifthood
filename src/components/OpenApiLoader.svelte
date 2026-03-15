@@ -113,7 +113,7 @@
         contentType: op.content_type,
         group: op._group,
         cardFields: op.fields || op.query_fields || op.path_fields
-          ? { fields: op.fields || [], query_fields: op.query_fields || [], path_fields: op.path_fields || [] }
+          ? { fields: op.fields || [], query_fields: op.query_fields || [], path_fields: op.path_fields || [], response_fields: op.response_fields || {} }
           : null,
         fieldsMode: (op.fields || op.query_fields || op.path_fields) ? 'on' : 'off',
       });

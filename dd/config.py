@@ -49,3 +49,21 @@ DEFAULT_IGNORE = [
     "root['body']['created']",
     "root['body']['updated']",
 ]
+
+# Formats that signal temporal/unique values which should be ignored by default
+TEMPORAL_FORMATS = {"date-time", "date", "time", "uuid", "uri"}
+
+
+def derive_ignore_paths(fields: list[dict], prefix: str = "root['body']") -> list[str]:
+    """Build DeepDiff exclude_paths from schema fields marked for drift-ignore."""
+    paths = []
+    for f in fields:
+        if f.get("nested"):
+            continue
+        if f.get("drift_ignore"):
+            parts = f["path"].split(".")
+            dp = prefix
+            for part in parts:
+                dp += f"['{part}']"
+            paths.append(dp)
+    return paths
