@@ -2,6 +2,13 @@
 
 """
 OpenAPI spec parsing and schema diff routes.
+
+NOTE: This module is a bespoke OpenAPI parser that grew organically. ~90% of
+the code (ref resolution, schema composition, type normalization, operation
+iteration) duplicates what libraries like prance or openapi-core provide.
+The drift-detection-specific logic (drift_ignore tagging, field diffing,
+rename detection) is only ~50 lines. Replace the generic parsing layer with
+a spec-compliant library when the opportunity arises.
 """
 
 import json
