@@ -59,6 +59,7 @@
     { id: 'bodies', label: 'Bodies' },
     { id: 'request', label: 'Request' },
     { id: 'response', label: 'Response' },
+    { id: 'conformance', label: 'Conformance' },
     { id: 'raw', label: 'Raw' },
   ];
 
@@ -328,6 +329,19 @@
   let respHeaderDeltaCount = $derived(respHeaderRows.changed.length);
   let respHeaderSameCount = $derived(respHeaderRows.same.length);
 
+  // ── Conformance helpers ──
+  let hasConformance = $derived(r?.conformance && (r.conformance.a?.length > 0 || r.conformance.b?.length > 0));
+  let conformanceIssueCount = $derived.by(() => {
+    if (!r?.conformance) return 0;
+    let count = 0;
+    for (const side of ['a', 'b']) {
+      for (const f of (r.conformance[side] || [])) {
+        if (!f.conforms) count++;
+      }
+    }
+    return count;
+  });
+
   // Close copy menu on outside click
   $effect(() => {
     function handleClick(e) {
@@ -369,6 +383,9 @@
             {tab.label}
             {#if tab.id === 'response' && respHeaderDeltaCount > 0}
               <span class="ml-1 text-[0.8em] text-yellow">({respHeaderDeltaCount})</span>
+            {/if}
+            {#if tab.id === 'conformance' && conformanceIssueCount > 0}
+              <span class="ml-1 text-[0.8em] text-red">({conformanceIssueCount})</span>
             {/if}
           </button>
         {/each}
@@ -531,6 +548,59 @@
               </div>
             {/if}
           </div>
+        {/if}
+
+        <!-- ════════ CONFORMANCE TAB ════════ -->
+        {#if activeTab === 'conformance'}
+          {#if hasConformance}
+            <div class="grid grid-cols-2 gap-3">
+              {#each [['a', getEnvA()?.name || 'Environment A'], ['b', getEnvB()?.name || 'Environment B']] as [side, envName]}
+                <div class="bg-bg p-2 rounded-md">
+                  <div class="text-[0.7em] text-text-dim uppercase tracking-wider mb-1.5">{envName} ({r[`response_${side}`]?.status || 'ERR'})</div>
+                  {#if r.conformance[side]?.length}
+                    <table class="w-full border-collapse font-mono text-[0.75em]">
+                      <thead>
+                        <tr class="border-b border-edge">
+                          <th class="text-left px-2 py-1 text-[0.85em] text-text-dim uppercase tracking-wider font-medium">Field</th>
+                          <th class="text-left px-2 py-1 text-[0.85em] text-text-dim uppercase tracking-wider font-medium">Expected</th>
+                          <th class="text-left px-2 py-1 text-[0.85em] text-text-dim uppercase tracking-wider font-medium">Actual</th>
+                          <th class="text-left px-2 py-1 text-[0.85em] text-text-dim uppercase tracking-wider font-medium w-[40px]"></th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {#each r.conformance[side] as f}
+                          <tr class="border-b border-edge/30 {f.conforms ? '' : 'bg-red/[0.06]'}">
+                            <td class="px-2 py-1 {f.required ? 'text-accent font-medium' : 'text-text-dim'}" title={f.required ? 'required' : 'optional'}>{f.field}{#if f.required}<span class="text-red ml-0.5">*</span>{/if}</td>
+                            <td class="px-2 py-1 text-text-dim">{f.expected_type}</td>
+                            <td class="px-2 py-1 {f.conforms ? 'text-text-dim' : f.present ? 'text-red' : 'text-yellow'}">
+                              {#if !f.present}
+                                <span class="italic">(missing)</span>
+                              {:else}
+                                {f.actual_type}
+                              {/if}
+                            </td>
+                            <td class="px-2 py-1 text-center">
+                              {#if f.conforms}
+                                <span class="text-green" title="Conforms">&#10003;</span>
+                              {:else}
+                                <span class="text-red" title="Does not conform">&#10007;</span>
+                              {/if}
+                            </td>
+                          </tr>
+                        {/each}
+                      </tbody>
+                    </table>
+                  {:else}
+                    <div class="text-[0.8em] text-text-dim">No conformance data for this response.</div>
+                  {/if}
+                </div>
+              {/each}
+            </div>
+          {:else}
+            <div class="text-[0.8em] text-text-dim">
+              No conformance data available. Load an OpenAPI spec with response schemas to enable spec-conformance validation.
+            </div>
+          {/if}
         {/if}
 
         <!-- ════════ RAW TAB ════════ -->

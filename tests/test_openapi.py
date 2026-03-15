@@ -25,6 +25,7 @@ from dd.openapi import (
     parse_openapi,
     group_operations,
     diff_operation_fields,
+    diff_response_fields,
     fields_fingerprint,
     router,
 )
@@ -85,33 +86,21 @@ class TestResolveRef:
         result = resolve_ref(obj, spec)
         assert "nested" in result
 
-    def test_two_hop_ref_chain_bug(self, nested_ref_spec):
-        """BUG: resolve_ref only resolves one level of $ref indirection.
+    def test_two_hop_ref_chain(self, nested_ref_spec):
+        """resolve_ref follows multi-hop $ref chains.
 
         ItemAlias is itself a $ref to Item, so resolving ItemAlias
-        should yield Item's properties. Currently it returns the
-        intermediate $ref object instead.
+        should yield Item's properties in a single call.
         """
         spec = nested_ref_spec
         alias_ref = {"$ref": "#/components/schemas/ItemAlias"}
 
-        # First resolve: gets ItemAlias, which is {"$ref": "#/components/schemas/Item"}
         result = resolve_ref(alias_ref, spec)
 
-        # BUG marker: the result still contains $ref because resolve_ref
-        # does not recurse. A second call would be needed.
-        if "$ref" in result:
-            # Current buggy behavior: intermediate $ref leaks through
-            assert result["$ref"] == "#/components/schemas/Item"
-
-            # Verify that a second call does reach the real schema:
-            final = resolve_ref(result, spec)
-            assert final.get("type") == "object"
-            assert "name" in final.get("properties", {})
-        else:
-            # If the bug is fixed, we get Item directly
-            assert result.get("type") == "object"
-            assert "name" in result.get("properties", {})
+        # resolve_ref recurses through the intermediate $ref to reach Item
+        assert "$ref" not in result
+        assert result.get("type") == "object"
+        assert "name" in result.get("properties", {})
 
     def test_ref_with_empty_string(self):
         """Empty $ref string should return the object unchanged."""
@@ -321,10 +310,8 @@ class TestExtractFields:
         schema = {"type": "object"}
         assert extract_fields(schema, {}) == []
 
-    def test_allof_composition_bug(self, openapi31_spec):
-        """BUG: allOf schemas produce empty field lists because
-        extract_fields looks for 'properties' at the top level,
-        but allOf merges multiple sub-schemas.
+    def test_allof_composition(self, openapi31_spec):
+        """allOf schemas merge sub-schema properties correctly.
 
         The EventRequest schema uses allOf to compose EventBase + priority.
         """
@@ -332,16 +319,10 @@ class TestExtractFields:
         event_schema = spec["components"]["schemas"]["EventRequest"]
         fields = extract_fields(event_schema, spec)
 
-        # BUG: allOf is silently ignored -- no 'properties' key at top level
-        if len(fields) == 0:
-            # Current buggy behavior: allOf not handled, returns empty
-            pass
-        else:
-            # Expected correct behavior after fix:
-            field_names = {f["name"] for f in fields}
-            assert "type" in field_names  # from EventBase
-            assert "payload" in field_names  # from EventBase
-            assert "priority" in field_names  # from inline schema
+        field_names = {f["name"] for f in fields}
+        assert "type" in field_names  # from EventBase
+        assert "payload" in field_names  # from EventBase
+        assert "priority" in field_names  # from inline schema
 
     def test_prefix_parameter(self):
         """Prefix parameter correctly prepends to field paths."""
@@ -678,12 +659,34 @@ class TestParseOpenapi:
 
     # -- HTTP method coverage --
 
-    def test_query_method_dropped_bug(self):
-        """BUG: The QUERY HTTP method is not in the iteration list,
-        so QUERY operations are silently dropped.
+    def test_query_method_parsed_for_openapi32(self):
+        """QUERY HTTP method is parsed for OpenAPI 3.2+ specs."""
+        spec = {
+            "openapi": "3.2.0",
+            "info": {"title": "Query Test", "version": "1.0"},
+            "paths": {
+                "/search": {
+                    "query": {
+                        "operationId": "searchItems",
+                        "summary": "Search items",
+                        "responses": {"200": {"description": "OK"}},
+                    },
+                    "get": {
+                        "operationId": "listItems",
+                        "summary": "List items",
+                        "responses": {"200": {"description": "OK"}},
+                    },
+                }
+            },
+        }
+        result = parse_openapi(json.dumps(spec))
+        labels = {o["label"] for o in result["operations"]}
 
-        RFC 9110 defines QUERY as a standard method.
-        """
+        assert "searchItems" in labels
+        assert "listItems" in labels
+
+    def test_query_method_ignored_for_openapi30(self):
+        """QUERY HTTP method is not recognized in OpenAPI 3.0 specs."""
         spec = {
             "openapi": "3.0.3",
             "info": {"title": "Query Test", "version": "1.0"},
@@ -705,13 +708,8 @@ class TestParseOpenapi:
         result = parse_openapi(json.dumps(spec))
         labels = {o["label"] for o in result["operations"]}
 
-        # BUG: "query" is not in the method list, so searchItems is dropped
-        if "searchItems" not in labels:
-            # Current buggy behavior: QUERY method ignored
-            assert "listItems" in labels  # GET is still parsed
-        else:
-            # Bug fixed: QUERY method included
-            assert "searchItems" in labels
+        assert "searchItems" not in labels
+        assert "listItems" in labels
 
     def test_all_standard_methods_parsed(self):
         """GET, POST, PUT, DELETE, PATCH, HEAD, OPTIONS should all work."""
@@ -1541,3 +1539,458 @@ class TestEdgeCases:
         assert result["title"] == "Onetime Secret API"
         assert result["total_operations"] > 50  # real spec has ~100 operations
         assert len(result["groups"]) > 1
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# diff_response_fields
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+def _make_resp_field(name, ftype="string", required=False, nested=False, const=None):
+    """Helper to build a minimal field dict for diff_response_fields tests."""
+    f = {"name": name, "path": name, "type": ftype, "required": required, "nested": nested}
+    if const is not None:
+        f["const"] = const
+    return f
+
+
+class TestDiffResponseFields:
+    """Tests for diff_response_fields: per-status-code response schema diffing."""
+
+    def test_both_empty(self):
+        """Two empty response field dicts produce no changes."""
+        result = diff_response_fields({}, {})
+        assert result["has_changes"] is False
+        assert result["per_code"] == {}
+
+    def test_status_code_added_in_b(self):
+        """A status code present only in spec B is marked added_in_b."""
+        resp_a = {}
+        resp_b = {"201": [_make_resp_field("id")]}
+        result = diff_response_fields(resp_a, resp_b)
+        assert result["has_changes"] is True
+        assert "201" in result["per_code"]
+        assert result["per_code"]["201"]["status"] == "added_in_b"
+        assert result["per_code"]["201"]["fields"] == resp_b["201"]
+        assert result["per_code"]["201"]["diff"] == {}
+
+    def test_status_code_removed_from_b(self):
+        """A status code present only in spec A is marked removed_from_b."""
+        resp_a = {"404": [_make_resp_field("error")]}
+        resp_b = {}
+        result = diff_response_fields(resp_a, resp_b)
+        assert result["has_changes"] is True
+        assert "404" in result["per_code"]
+        assert result["per_code"]["404"]["status"] == "removed_from_b"
+        assert result["per_code"]["404"]["fields"] == resp_a["404"]
+
+    def test_identical_shared_code(self):
+        """Shared status code with identical fields has status 'identical'."""
+        fields = [_make_resp_field("status"), _make_resp_field("count", "integer")]
+        resp_a = {"200": fields}
+        resp_b = {"200": fields}
+        result = diff_response_fields(resp_a, resp_b)
+        assert result["has_changes"] is False
+        assert result["per_code"]["200"]["status"] == "identical"
+        assert result["per_code"]["200"]["fields_a"] == fields
+        assert result["per_code"]["200"]["fields_b"] == fields
+
+    def test_changed_shared_code_field_added(self):
+        """Shared status code where spec B adds a field is marked 'changed'."""
+        resp_a = {"200": [_make_resp_field("status")]}
+        resp_b = {"200": [_make_resp_field("status"), _make_resp_field("new_field")]}
+        result = diff_response_fields(resp_a, resp_b)
+        assert result["has_changes"] is True
+        assert result["per_code"]["200"]["status"] == "changed"
+        diff = result["per_code"]["200"]["diff"]
+        assert len(diff["added"]) == 1
+        assert diff["added"][0]["path"] == "new_field"
+
+    def test_changed_shared_code_field_removed(self):
+        """Shared status code where spec B removes a field is marked 'changed'."""
+        resp_a = {"200": [_make_resp_field("status"), _make_resp_field("old_field")]}
+        resp_b = {"200": [_make_resp_field("status")]}
+        result = diff_response_fields(resp_a, resp_b)
+        assert result["has_changes"] is True
+        diff = result["per_code"]["200"]["diff"]
+        assert len(diff["removed"]) == 1
+        assert diff["removed"][0]["path"] == "old_field"
+
+    def test_changed_shared_code_type_changed(self):
+        """Shared status code where a field type changes is 'changed'."""
+        resp_a = {"200": [_make_resp_field("count", "string")]}
+        resp_b = {"200": [_make_resp_field("count", "integer")]}
+        result = diff_response_fields(resp_a, resp_b)
+        assert result["has_changes"] is True
+        diff = result["per_code"]["200"]["diff"]
+        assert len(diff["type_changed"]) == 1
+        assert diff["type_changed"][0]["type_a"] == "string"
+        assert diff["type_changed"][0]["type_b"] == "integer"
+
+    def test_multiple_status_codes_mixed(self):
+        """Mix of added, removed, changed, and identical across multiple codes."""
+        resp_a = {
+            "200": [_make_resp_field("status")],
+            "400": [_make_resp_field("error")],
+            "404": [_make_resp_field("message")],
+        }
+        resp_b = {
+            "200": [_make_resp_field("status")],
+            "400": [_make_resp_field("error"), _make_resp_field("details")],
+            "500": [_make_resp_field("server_error")],
+        }
+        result = diff_response_fields(resp_a, resp_b)
+        assert result["has_changes"] is True
+        pc = result["per_code"]
+        assert pc["200"]["status"] == "identical"
+        assert pc["400"]["status"] == "changed"
+        assert len(pc["400"]["diff"]["added"]) == 1
+        assert pc["404"]["status"] == "removed_from_b"
+        assert pc["500"]["status"] == "added_in_b"
+
+    def test_const_changed_in_shared_code(self):
+        """Shared status code with const value change is detected."""
+        resp_a = {"200": [_make_resp_field("version", const="v1")]}
+        resp_b = {"200": [_make_resp_field("version", const="v2")]}
+        result = diff_response_fields(resp_a, resp_b)
+        assert result["has_changes"] is True
+        diff = result["per_code"]["200"]["diff"]
+        assert len(diff["const_changed"]) == 1
+        assert diff["const_changed"][0]["const_a"] == "v1"
+        assert diff["const_changed"][0]["const_b"] == "v2"
+
+    def test_nested_fields_excluded_from_diff(self):
+        """Fields marked nested=True are excluded by fields_fingerprint."""
+        resp_a = {"200": [
+            {"name": "data", "path": "data", "type": "object", "nested": True},
+            _make_resp_field("data.id"),
+        ]}
+        resp_b = {"200": [
+            {"name": "data", "path": "data", "type": "object", "nested": True},
+            _make_resp_field("data.id"),
+        ]}
+        result = diff_response_fields(resp_a, resp_b)
+        assert result["has_changes"] is False
+        assert result["per_code"]["200"]["status"] == "identical"
+
+    def test_no_changes_across_multiple_identical_codes(self):
+        """has_changes is False when all shared codes are identical."""
+        resp_a = {"200": [_make_resp_field("ok", "boolean")], "404": [_make_resp_field("error")]}
+        resp_b = {"200": [_make_resp_field("ok", "boolean")], "404": [_make_resp_field("error")]}
+        result = diff_response_fields(resp_a, resp_b)
+        assert result["has_changes"] is False
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# 13. Security scheme extraction
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSecuritySchemeExtraction:
+    """Tests for security scheme extraction from parsed OpenAPI specs.
+
+    Covers lines 407-429 of openapi.py: operation-level security,
+    global security fallback, Swagger 2.0 securityDefinitions, $ref
+    resolution, scopes, and override semantics.
+    """
+
+    def _make_spec(self, *, paths, security=None, components_security=None):
+        """Build a minimal OpenAPI 3.0 spec with security configuration."""
+        spec = {
+            "openapi": "3.0.3",
+            "info": {"title": "Security Test", "version": "1.0"},
+            "paths": paths,
+        }
+        if security is not None:
+            spec["security"] = security
+        if components_security is not None:
+            spec.setdefault("components", {})["securitySchemes"] = components_security
+        return spec
+
+    def test_operation_level_bearer_auth(self):
+        """Operation with its own security requirement referencing a Bearer scheme."""
+        spec = self._make_spec(
+            paths={
+                "/protected": {
+                    "get": {
+                        "operationId": "getProtected",
+                        "security": [{"bearerAuth": []}],
+                        "responses": {"200": {"description": "OK"}},
+                    }
+                }
+            },
+            components_security={
+                "bearerAuth": {
+                    "type": "http",
+                    "scheme": "bearer",
+                }
+            },
+        )
+        result = parse_openapi(json.dumps(spec))
+        op = result["operations"][0]
+        assert len(op["security"]) == 1
+        sec = op["security"][0]
+        assert sec["name"] == "bearerAuth"
+        assert sec["type"] == "http"
+        assert sec["scheme"] == "bearer"
+        assert sec["scopes"] == []
+
+    def test_global_security_inherited_by_operation(self):
+        """Operations without their own security inherit the global security."""
+        spec = self._make_spec(
+            paths={
+                "/data": {
+                    "get": {
+                        "operationId": "getData",
+                        "responses": {"200": {"description": "OK"}},
+                    }
+                }
+            },
+            security=[{"apiKey": []}],
+            components_security={
+                "apiKey": {
+                    "type": "apiKey",
+                    "in": "header",
+                    "name": "X-API-Key",
+                }
+            },
+        )
+        result = parse_openapi(json.dumps(spec))
+        op = result["operations"][0]
+        assert len(op["security"]) == 1
+        sec = op["security"][0]
+        assert sec["name"] == "apiKey"
+        assert sec["type"] == "apiKey"
+        assert sec["in"] == "header"
+
+    def test_operation_security_overrides_global(self):
+        """Operation-level security takes precedence over global security."""
+        spec = self._make_spec(
+            paths={
+                "/admin": {
+                    "get": {
+                        "operationId": "adminEndpoint",
+                        "security": [{"oauth2": ["admin:read"]}],
+                        "responses": {"200": {"description": "OK"}},
+                    }
+                }
+            },
+            security=[{"apiKey": []}],
+            components_security={
+                "apiKey": {
+                    "type": "apiKey",
+                    "in": "header",
+                    "name": "X-API-Key",
+                },
+                "oauth2": {
+                    "type": "oauth2",
+                    "flows": {
+                        "authorizationCode": {
+                            "authorizationUrl": "https://example.com/auth",
+                            "tokenUrl": "https://example.com/token",
+                            "scopes": {"admin:read": "Read admin data"},
+                        }
+                    },
+                },
+            },
+        )
+        result = parse_openapi(json.dumps(spec))
+        op = result["operations"][0]
+        # Should have oauth2, not apiKey
+        assert len(op["security"]) == 1
+        sec = op["security"][0]
+        assert sec["name"] == "oauth2"
+        assert sec["type"] == "oauth2"
+        assert sec["scopes"] == ["admin:read"]
+
+    def test_oauth2_scopes_passed_through(self):
+        """OAuth2 scopes from the security requirement are preserved."""
+        spec = self._make_spec(
+            paths={
+                "/resources": {
+                    "get": {
+                        "operationId": "listResources",
+                        "security": [{"oauth2": ["read", "list"]}],
+                        "responses": {"200": {"description": "OK"}},
+                    }
+                }
+            },
+            components_security={
+                "oauth2": {
+                    "type": "oauth2",
+                    "flows": {},
+                },
+            },
+        )
+        result = parse_openapi(json.dumps(spec))
+        op = result["operations"][0]
+        assert op["security"][0]["scopes"] == ["read", "list"]
+
+    def test_empty_security_overrides_global(self):
+        """Operation with security: [] explicitly opts out of all auth."""
+        spec = self._make_spec(
+            paths={
+                "/public": {
+                    "get": {
+                        "operationId": "publicEndpoint",
+                        "security": [],
+                        "responses": {"200": {"description": "OK"}},
+                    }
+                }
+            },
+            security=[{"bearerAuth": []}],
+            components_security={
+                "bearerAuth": {"type": "http", "scheme": "bearer"},
+            },
+        )
+        result = parse_openapi(json.dumps(spec))
+        op = result["operations"][0]
+        assert op["security"] == []
+
+    def test_no_security_anywhere(self):
+        """Operation with no security at any level produces empty list."""
+        spec = self._make_spec(
+            paths={
+                "/open": {
+                    "get": {
+                        "operationId": "openEndpoint",
+                        "responses": {"200": {"description": "OK"}},
+                    }
+                }
+            },
+        )
+        result = parse_openapi(json.dumps(spec))
+        op = result["operations"][0]
+        assert op["security"] == []
+
+    def test_multiple_schemes_in_one_requirement(self):
+        """A single security requirement can list multiple schemes (AND logic)."""
+        spec = self._make_spec(
+            paths={
+                "/strict": {
+                    "get": {
+                        "operationId": "strictEndpoint",
+                        "security": [{"bearerAuth": [], "apiKey": []}],
+                        "responses": {"200": {"description": "OK"}},
+                    }
+                }
+            },
+            components_security={
+                "bearerAuth": {"type": "http", "scheme": "bearer"},
+                "apiKey": {"type": "apiKey", "in": "header", "name": "X-Key"},
+            },
+        )
+        result = parse_openapi(json.dumps(spec))
+        op = result["operations"][0]
+        # Both schemes should be extracted from the single requirement
+        assert len(op["security"]) == 2
+        names = {s["name"] for s in op["security"]}
+        assert names == {"bearerAuth", "apiKey"}
+
+    def test_multiple_requirements_or_logic(self):
+        """Multiple security requirements represent OR logic: either suffices."""
+        spec = self._make_spec(
+            paths={
+                "/flexible": {
+                    "get": {
+                        "operationId": "flexibleEndpoint",
+                        "security": [
+                            {"bearerAuth": []},
+                            {"apiKey": []},
+                        ],
+                        "responses": {"200": {"description": "OK"}},
+                    }
+                }
+            },
+            components_security={
+                "bearerAuth": {"type": "http", "scheme": "bearer"},
+                "apiKey": {"type": "apiKey", "in": "query", "name": "key"},
+            },
+        )
+        result = parse_openapi(json.dumps(spec))
+        op = result["operations"][0]
+        assert len(op["security"]) == 2
+        types = [s["type"] for s in op["security"]]
+        assert "http" in types
+        assert "apiKey" in types
+
+    def test_swagger20_security_definitions(self):
+        """Swagger 2.0 uses top-level securityDefinitions instead of components."""
+        spec = {
+            "swagger": "2.0",
+            "info": {"title": "Legacy", "version": "1.0"},
+            "basePath": "/api",
+            "securityDefinitions": {
+                "basicAuth": {
+                    "type": "basic",
+                }
+            },
+            "paths": {
+                "/secret": {
+                    "get": {
+                        "operationId": "getSecret",
+                        "security": [{"basicAuth": []}],
+                        "responses": {"200": {"description": "OK"}},
+                    }
+                }
+            },
+        }
+        result = parse_openapi(json.dumps(spec))
+        op = result["operations"][0]
+        assert len(op["security"]) == 1
+        sec = op["security"][0]
+        assert sec["name"] == "basicAuth"
+        assert sec["type"] == "basic"
+
+    def test_security_scheme_via_ref(self):
+        """Security scheme definition itself is a $ref and gets resolved."""
+        spec = self._make_spec(
+            paths={
+                "/ref-auth": {
+                    "get": {
+                        "operationId": "refAuthEndpoint",
+                        "security": [{"tokenAuth": []}],
+                        "responses": {"200": {"description": "OK"}},
+                    }
+                }
+            },
+            components_security={
+                "tokenAuth": {
+                    "$ref": "#/components/schemas/_TokenAuthDef",
+                },
+            },
+        )
+        spec["components"]["schemas"] = {
+            "_TokenAuthDef": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT",
+            }
+        }
+        result = parse_openapi(json.dumps(spec))
+        op = result["operations"][0]
+        assert len(op["security"]) == 1
+        sec = op["security"][0]
+        assert sec["type"] == "http"
+        assert sec["scheme"] == "bearer"
+
+    def test_unknown_scheme_name_produces_unknown_type(self):
+        """Referencing a scheme not defined in securitySchemes gives type 'unknown'."""
+        spec = self._make_spec(
+            paths={
+                "/missing": {
+                    "get": {
+                        "operationId": "missingScheme",
+                        "security": [{"nonexistent": []}],
+                        "responses": {"200": {"description": "OK"}},
+                    }
+                }
+            },
+            components_security={},
+        )
+        result = parse_openapi(json.dumps(spec))
+        op = result["operations"][0]
+        assert len(op["security"]) == 1
+        sec = op["security"][0]
+        assert sec["name"] == "nonexistent"
+        assert sec["type"] == "unknown"

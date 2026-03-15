@@ -251,6 +251,15 @@
                                   </div>
                                 {/each}
                               {/if}
+                              {#if codeDiff.diff.const_changed?.length}
+                                {#each codeDiff.diff.const_changed as cc}
+                                  <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg ml-2">
+                                    <span class="text-yellow">{cc.path}</span>:
+                                    <span class="text-red">{String(cc.const_a)}</span> &rarr;
+                                    <span class="text-green">{String(cc.const_b)}</span>
+                                  </div>
+                                {/each}
+                              {/if}
                             {/if}
                           </div>
                         {/if}

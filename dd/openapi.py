@@ -5,6 +5,7 @@ OpenAPI spec parsing and schema diff routes.
 """
 
 import json
+import logging
 from collections import defaultdict
 from difflib import SequenceMatcher
 
@@ -12,12 +13,29 @@ import requests as req
 import yaml
 from fastapi import APIRouter, File, Form, UploadFile
 
+logger = logging.getLogger(__name__)
+
 router = APIRouter()
 
 
 # ---------------------------------------------------------------------------
 # Schema helpers
 # ---------------------------------------------------------------------------
+def normalize_type(type_value, default: str = "string") -> str:
+    """Normalize OpenAPI 3.1 type arrays to a single type string.
+
+    In 3.1, type can be ["string", "null"] to indicate nullable.
+    This picks the first non-null type from the array, or falls back to default.
+    If type_value is already a string, it's returned as-is.
+    """
+    if isinstance(type_value, list):
+        non_null = [t for t in type_value if t != "null"]
+        return non_null[0] if non_null else default
+    if isinstance(type_value, str):
+        return type_value
+    return default
+
+
 def resolve_ref(obj: dict, spec: dict, _seen: set | None = None) -> dict:
     """Resolve $ref pointers recursively with cycle detection.
 
@@ -39,9 +57,13 @@ def resolve_ref(obj: dict, spec: dict, _seen: set | None = None) -> dict:
     parts = ref.lstrip("#/").split("/")
     node = spec
     for p in parts:
-        node = node.get(p, {})
+        if not isinstance(node, dict) or p not in node:
+            logger.warning("$ref target not found: %s (missing segment '%s')", ref, p)
+            return obj
+        node = node[p]
 
     if not isinstance(node, dict):
+        logger.warning("$ref target resolved to non-dict: %s", ref)
         return obj
 
     # If the resolved node itself contains a $ref, resolve it too
@@ -62,14 +84,17 @@ def extract_fields(schema: dict, spec: dict, prefix: str = "") -> list[dict]:
         return []
     schema = resolve_ref(schema, spec)
 
-    # allOf: merge all sub-schemas' properties and required arrays
-    if "allOf" in schema and not schema.get("properties"):
+    # allOf: merge all sub-schemas' properties and required arrays, then
+    # overlay any top-level properties (valid extension pattern in OpenAPI).
+    if "allOf" in schema:
         merged_props = {}
         merged_required = list(schema.get("required", []))
         for sub in schema["allOf"]:
             sub = resolve_ref(sub, spec)
             merged_props.update(sub.get("properties", {}))
             merged_required.extend(sub.get("required", []))
+        # Top-level properties take precedence over allOf contributions
+        merged_props.update(schema.get("properties", {}))
         schema = {**schema, "properties": merged_props, "required": merged_required}
 
     # oneOf: pick the first branch that has properties
@@ -89,12 +114,12 @@ def extract_fields(schema: dict, spec: dict, prefix: str = "") -> list[dict]:
     for name, prop in props.items():
         prop = resolve_ref(prop, spec)
         path = f"{prefix}{name}" if not prefix else f"{prefix}.{name}"
-        ftype = prop.get("type", "string")
+        ftype = normalize_type(prop.get("type", "string"))
         # anyOf: pick the most specific branch
         if "anyOf" in prop:
             for branch in prop["anyOf"]:
                 if branch.get("type"):
-                    ftype = branch["type"]
+                    ftype = normalize_type(branch["type"])
                     prop = {**prop, **branch}
                     break
         fmt = prop.get("format", "")
@@ -155,11 +180,11 @@ def extract_example_body(schema: dict, spec: dict) -> str | None:
             parts.append(f"{name}={prop['example']}")
         elif "default" in prop:
             parts.append(f"{name}={prop['default']}")
-        elif prop.get("type") == "string":
+        elif normalize_type(prop.get("type")) == "string":
             parts.append(f"{name}=test")
-        elif prop.get("type") == "integer":
+        elif normalize_type(prop.get("type")) == "integer":
             parts.append(f"{name}=0")
-        elif prop.get("type") == "boolean":
+        elif normalize_type(prop.get("type")) == "boolean":
             parts.append(f"{name}=true")
     return "&".join(parts) if parts else None
 
@@ -279,7 +304,7 @@ def parse_openapi(raw: str) -> dict:
                         {
                             "name": name,
                             "path": name,
-                            "type": param.get("type", "string"),
+                            "type": normalize_type(param.get("type", "string")),
                             "required": param.get("required", False),
                             "example": param.get(
                                 "example", param.get("default")
@@ -336,10 +361,10 @@ def parse_openapi(raw: str) -> dict:
                         {
                             "name": name,
                             "path": name,
-                            "type": param.get(
+                            "type": normalize_type(param.get(
                                 "type",
                                 param.get("schema", {}).get("type", "string"),
-                            ),
+                            )),
                             "required": param.get("required", False),
                             "example": param.get(
                                 "example", param.get("default")
@@ -364,10 +389,10 @@ def parse_openapi(raw: str) -> dict:
                         {
                             "name": param.get("name", ""),
                             "path": param.get("name", ""),
-                            "type": param.get(
+                            "type": normalize_type(param.get(
                                 "type",
                                 param.get("schema", {}).get("type", "string"),
-                            ),
+                            )),
                             "required": True,
                             "example": param.get(
                                 "example", param.get("default")
@@ -524,25 +549,40 @@ def diff_operation_fields(fields_a: list[dict], fields_b: list[dict]) -> dict:
                 }
             )
 
+    # Best-match rename detection: for each removed field, find the single
+    # best-matching added field (by name similarity).  Each added field can
+    # only be claimed once, avoiding the cartesian-product false positives
+    # that the old approach produced (e.g. first_name matching given_name
+    # AND family_name).
     possible_renames = []
+    candidates: list[tuple[dict, dict, float]] = []
     for r in removed:
         for a in added:
             if r["type"] == a["type"] and r["name"] != a["name"]:
                 similarity = SequenceMatcher(
                     None, r["name"].lower(), a["name"].lower()
                 ).ratio()
-                if similarity < 0.4:
-                    continue
-                possible_renames.append(
-                    {
-                        "old_path": r["path"],
-                        "new_path": a["path"],
-                        "old_name": r["name"],
-                        "new_name": a["name"],
-                        "type": r["type"],
-                        "similarity": round(similarity, 2),
-                    }
-                )
+                if similarity >= 0.5:
+                    candidates.append((r, a, similarity))
+    # Sort by similarity descending so the strongest matches are claimed first
+    candidates.sort(key=lambda x: x[2], reverse=True)
+    claimed_removed: set[str] = set()
+    claimed_added: set[str] = set()
+    for r, a, similarity in candidates:
+        if r["path"] in claimed_removed or a["path"] in claimed_added:
+            continue
+        claimed_removed.add(r["path"])
+        claimed_added.add(a["path"])
+        possible_renames.append(
+            {
+                "old_path": r["path"],
+                "new_path": a["path"],
+                "old_name": r["name"],
+                "new_name": a["name"],
+                "type": r["type"],
+                "similarity": round(similarity, 2),
+            }
+        )
 
     return {
         "added": added,

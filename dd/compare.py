@@ -15,7 +15,7 @@ from deepdiff import DeepDiff
 from fastapi import APIRouter
 from pydantic import BaseModel
 
-from dd.config import DEFAULT_ENVIRONMENTS, DEFAULT_IGNORE, HOST_A, HOST_B, VERIFY_SSL, TEMPORAL_FORMATS
+from dd.config import DEFAULT_ENVIRONMENTS, DEFAULT_IGNORE, HOST_A, HOST_B, VERIFY_SSL, TEMPORAL_FORMATS, derive_ignore_paths
 
 router = APIRouter()
 
@@ -30,6 +30,9 @@ class ResponseSchemaField(BaseModel):
     type: str
     required: bool = False
     nested: bool = False
+    format: str = ""
+    description: str = ""
+    drift_ignore: bool = False
 
 
 class CompareRequest(BaseModel):
@@ -230,6 +233,14 @@ def do_compare(
         ignore.extend(cr.ignore_paths)
     if cr.extra_ignore_paths:
         ignore.extend(cr.extra_ignore_paths)
+    elif cr.response_schema:
+        # Derive ignore paths from response_schema fields marked as drift_ignore
+        # when extra_ignore_paths was not explicitly provided by the caller.
+        for _, fields in cr.response_schema.items():
+            field_dicts = [f.model_dump() for f in fields]
+            derived = derive_ignore_paths(field_dicts)
+            if derived:
+                ignore.extend(derived)
 
     a = hit(
         host_a,
