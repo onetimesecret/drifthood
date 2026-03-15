@@ -206,7 +206,11 @@ def validate_response_against_schema(
         expected_type = f["type"]
         present, value = _get_nested(body, path)
         actual_type = _python_type_name(value) if present else None
-        conforms = present and _type_matches(expected_type, actual_type or "")
+        required = f.get("required", False)
+        if not present:
+            conforms = not required  # missing optional fields still conform
+        else:
+            conforms = _type_matches(expected_type, actual_type or "")
         results.append(
             {
                 "field": path,
@@ -214,7 +218,7 @@ def validate_response_against_schema(
                 "actual_type": actual_type,
                 "present": present,
                 "conforms": conforms,
-                "required": f.get("required", False),
+                "required": required,
             }
         )
     return results

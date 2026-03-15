@@ -118,29 +118,10 @@
 
       const body = assembleBody(variant.fieldValues) || null;
 
-      // Build response_schema and extra_ignore_paths from parsed spec fields
-      let response_schema = null;
-      let extra_ignore_paths = null;
-      if (info && info.response_fields && Object.keys(info.response_fields).length > 0) {
-        response_schema = info.response_fields;
-        const specIgnorePaths = [];
-        for (const [, fields] of Object.entries(info.response_fields)) {
-          for (const f of fields) {
-            if (f.nested) continue;
-            if (f.drift_ignore) {
-              const parts = f.path.split('.');
-              let dp = "root['body']";
-              for (const part of parts) {
-                dp += `['${part}']`;
-              }
-              specIgnorePaths.push(dp);
-            }
-          }
-        }
-        if (specIgnorePaths.length > 0) {
-          extra_ignore_paths = specIgnorePaths;
-        }
-      }
+      // Pass response_schema to the backend; it derives ignore paths automatically
+      const response_schema = (info && info.response_fields && Object.keys(info.response_fields).length > 0)
+        ? info.response_fields
+        : null;
 
       const envA = getEnvA();
       const envB = getEnvB();
@@ -161,7 +142,6 @@
         auth_b: envB?.auth || null,
         ignore_paths: ignorePaths,
         response_schema,
-        extra_ignore_paths,
       });
 
       variant.result = r;

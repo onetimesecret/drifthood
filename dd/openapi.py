@@ -20,6 +20,8 @@ import requests as req
 import yaml
 from fastapi import APIRouter, File, Form, UploadFile
 
+from dd.config import TEMPORAL_FORMATS
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
@@ -133,7 +135,7 @@ def extract_fields(schema: dict, spec: dict, prefix: str = "") -> list[dict]:
         # Detect fields that should be auto-ignored in drift comparison
         drift_ignore = bool(
             prop.get("x-drift-ignore")
-            or fmt in ("date-time", "date", "time", "uuid", "uri")
+            or fmt in TEMPORAL_FORMATS
         )
         field = {
             "name": name,

@@ -104,30 +104,10 @@
       }
     }
 
-    // Build response_schema and extra_ignore_paths from parsed spec fields
-    let response_schema = null;
-    let extra_ignore_paths = null;
-    if (info && info.response_fields && Object.keys(info.response_fields).length > 0) {
-      response_schema = info.response_fields;
-      // Derive ignore paths from fields marked as drift_ignore
-      const ignorePaths = [];
-      for (const [, fields] of Object.entries(info.response_fields)) {
-        for (const f of fields) {
-          if (f.nested) continue;
-          if (f.drift_ignore) {
-            const parts = f.path.split('.');
-            let dp = "root['body']";
-            for (const part of parts) {
-              dp += `['${part}']`;
-            }
-            ignorePaths.push(dp);
-          }
-        }
-      }
-      if (ignorePaths.length > 0) {
-        extra_ignore_paths = ignorePaths;
-      }
-    }
+    // Pass response_schema to the backend; it derives ignore paths automatically
+    const response_schema = (info && info.response_fields && Object.keys(info.response_fields).length > 0)
+      ? info.response_fields
+      : null;
 
     return {
       method: endpoint.method,
@@ -137,7 +117,6 @@
       content_type: endpoint.contentType || 'query',
       group: endpoint.group || null,
       response_schema,
-      extra_ignore_paths,
     };
   }
 
@@ -165,7 +144,6 @@
         auth_b: envB?.auth || null,
         ignore_paths: ignorePaths,
         response_schema: ep.response_schema,
-        extra_ignore_paths: ep.extra_ignore_paths,
       });
 
       // Attach request body/content_type for display

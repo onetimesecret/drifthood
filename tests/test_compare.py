@@ -179,6 +179,16 @@ class TestValidateResponseAgainstSchema:
         assert results[0]["conforms"] is False
         assert results[0]["actual_type"] is None
 
+    def test_missing_optional_field_conforms(self):
+        resp = {"body": {"other": "value"}}
+        schema = [
+            {"path": "status", "type": "string", "required": False, "nested": False},
+        ]
+        results = validate_response_against_schema(resp, schema)
+        assert len(results) == 1
+        assert results[0]["present"] is False
+        assert results[0]["conforms"] is True
+
     def test_nested_fields_skipped(self):
         """Fields with nested=True are skipped (their children are validated instead)."""
         resp = {"body": {"data": {"id": "123"}}}

@@ -137,7 +137,7 @@
             <div class="mb-2.5 border border-edge rounded-md overflow-hidden">
               <div class="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer font-mono text-[0.8em] bg-white/[0.02] hover:bg-white/[0.04]" role="button" tabindex="0" onclick={() => toggleEndpoint(r)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleEndpoint(r); } }}>
                 <span class="chevron" class:open={isOpen}>&#9654;</span>
-                <span class="text-[0.7em] font-semibold px-1.5 py-px rounded-lg uppercase {r.status === 'changed' ? 'bg-yellow/20 text-yellow' : r.status === 'added' || r.status === 'added_in_b' ? 'bg-green/15 text-green' : r.status === 'removed' || r.status === 'removed_from_b' ? 'bg-red/15 text-red' : 'bg-text-dim/15 text-text-dim'}">{r.status.replace('_', ' ')}</span>
+                <span class="text-[0.7em] font-semibold px-1.5 py-px rounded-lg uppercase {r.status === 'changed' ? 'bg-yellow/20 text-yellow' : r.status === 'added' || r.status === 'added_in_b' ? 'bg-green/15 text-green' : r.status === 'removed' || r.status === 'removed_from_b' ? 'bg-red/15 text-red' : 'bg-text-dim/15 text-text-dim'}">{r.status.replaceAll('_', ' ')}</span>
                 <span class="font-semibold w-[52px] text-right {r.method.toLowerCase() === 'get' ? 'text-green' : r.method.toLowerCase() === 'post' ? 'text-accent' : r.method.toLowerCase() === 'put' ? 'text-yellow' : r.method.toLowerCase() === 'delete' ? 'text-red' : r.method.toLowerCase() === 'patch' ? 'text-purple' : ''}">{r.method}</span>
                 <span>{r.path}</span>
               </div>
@@ -221,7 +221,7 @@
                           <div class="mb-2 ml-2">
                             <div class="text-[0.85em] font-mono mb-0.5">
                               <span class="font-semibold">{code}</span>
-                              <span class="text-text-dim ml-1 text-[0.85em] uppercase">{codeDiff.status.replace('_', ' ')}</span>
+                              <span class="text-text-dim ml-1 text-[0.85em] uppercase">{codeDiff.status.replaceAll('_', ' ')}</span>
                             </div>
                             {#if codeDiff.status === 'added_in_b' && codeDiff.fields}
                               {#each codeDiff.fields as f}

@@ -526,28 +526,18 @@ class TestParseOpenapi:
         assert "limit" in query_names
         assert "offset" in query_names
 
-    def test_openapi30_query_param_type_bug(self, openapi30_spec, to_json):
-        """BUG: Query param type reads param.get('type') instead of
-        param.get('schema', {}).get('type') for OpenAPI 3.x specs.
+    def test_openapi30_query_param_type(self, openapi30_spec, to_json):
+        """Query param type must read param.schema.type for OpenAPI 3.x specs.
 
         In 3.x, query parameters define type inside a 'schema' sub-object.
-        The parser reads the top-level 'type' which does not exist,
-        defaulting to 'string' even when schema.type is 'integer'.
+        The parser falls back through param.get('type') to param.schema.type.
         """
         result = parse_openapi(to_json(openapi30_spec))
         ops = result["operations"]
         list_users = next(o for o in ops if o["label"] == "listUsers")
 
         limit_field = next(f for f in list_users["query_fields"] if f["name"] == "limit")
-
-        # BUG: The limit param has schema.type = "integer" but the parser
-        # reads param.get("type") which is absent, so it defaults to "string"
-        if limit_field["type"] == "string":
-            # Current buggy behavior confirmed
-            pass
-        else:
-            # Bug is fixed: should be "integer"
-            assert limit_field["type"] == "integer"
+        assert limit_field["type"] == "integer"
 
     def test_openapi30_path_params(self, openapi30_spec, to_json):
         result = parse_openapi(to_json(openapi30_spec))
@@ -1014,11 +1004,12 @@ class TestDiffOperationFields:
         assert rename["old_name"] == "color"
         assert rename["new_name"] == "colour"
 
-    def test_rename_heuristic_false_positive_bug(self):
-        """BUG: Rename heuristic pairs any removed+added fields by type alone.
+    def test_rename_heuristic_best_match(self):
+        """Rename heuristic uses greedy best-match pairing, not cartesian product.
 
-        When multiple string fields are added and removed, this generates
-        O(n*m) rename candidates, most of which are noise.
+        With 3 removed and 3 added string fields, the best-match algorithm
+        pairs each removed field with its closest added field (by name
+        similarity), producing exactly 3 rename candidates.
         """
         fields_a = [
             self._field("first_name"),
@@ -1032,15 +1023,7 @@ class TestDiffOperationFields:
         ]
         diff = diff_operation_fields(fields_a, fields_b)
 
-        # BUG: With 3 removed strings and 3 added strings, the heuristic
-        # produces 3*3 = 9 possible renames, which is nearly all noise
-        rename_count = len(diff["possible_renames"])
-        if rename_count == 9:
-            # Current buggy behavior: cartesian product of same-type pairs
-            pass
-        else:
-            # Expected: smarter heuristic (edit distance, common prefix, etc.)
-            assert rename_count < 9
+        assert len(diff["possible_renames"]) == 3
 
     def test_empty_field_lists(self):
         diff = diff_operation_fields([], [])
