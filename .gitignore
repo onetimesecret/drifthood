@@ -6,6 +6,7 @@ __pycache__/
 venv*/
 .well-known/
 node_modules/
+.vite/
 dist/
 
 # Override root .gitignore which ignores lib/ (Python convention)
