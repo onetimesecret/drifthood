@@ -12,16 +12,17 @@
 
   import { DD_VERSION } from '../lib/examples.js';
   import { stateFingerprint } from '../lib/state.js';
-  import { encryptBlob, decryptBlob } from './lib/crypto.js';
+  import { encryptBlob } from './lib/crypto.js';
   import { auth, getEncKey } from './stores/auth.svelte.js';
-  import { apiSave, apiCompare, apiListDocuments, apiGetDocument, apiGetTestrun, apiUpdateDocumentTitle } from '../lib/api.js';
+  import { apiSave, apiCompare, apiListDocuments, apiGetDocument, apiUpdateDocumentTitle } from '../lib/api.js';
+  import { loadTestrun } from './lib/testrun-loader.js';
   import { toDiffPath } from '../lib/format.js';
   import { setNestedValue, flattenObj } from '../lib/params.js';
   import { session, getEnvA, getEnvB, seedDefaultEnvironments, loadEnvironments } from './stores/session.svelte.js';
-  import { endpoints, addEndpoint, clearResults, loadEndpoints } from './stores/endpoints.svelte.js';
+  import { endpoints, addEndpoint, clearResults } from './stores/endpoints.svelte.js';
   import { ui } from './stores/ui.svelte.js';
   import { documents, notifyDocumentsChanged, rememberLastDocument, recallLastDocument } from './stores/documents.svelte.js';
-  import { snapshot, snapshotLegacy, restore } from './stores/snapshot.js';
+  import { snapshot, restore } from './stores/snapshot.js';
   import { runConcurrent } from '../lib/concurrent.js';
 
   // ── Route state ──
@@ -198,56 +199,9 @@
 
   async function loadSavedTestrun(docExtid, testrunExtid, testrunNumber) {
     try {
-      const data = await apiGetTestrun(docExtid, testrunExtid);
-      if (data.error || !data.testrun) {
-        showDropToast('Testrun not found: ' + (data.error || 'no testrun data'), true);
-        return;
-      }
-      const tr = data.testrun;
-      const state = tr.state;
-      if (!state) {
-        showDropToast('Testrun has no state data', true);
-        return;
-      }
-
-      // If testrun has an encrypted blob, decrypt it for sensitive data
-      let sensitive = null;
-      if (tr.encrypted_blob && tr.blob_iv) {
-        try {
-          const encKey = getEncKey();
-          if (encKey) {
-            // Use document extid as AAD (same as encryption)
-            const aad = docExtid || 'doc';
-            const plaintext = await decryptBlob(encKey, tr.encrypted_blob, tr.blob_iv, aad);
-            sensitive = JSON.parse(plaintext);
-          }
-        } catch (err) {
-          console.warn('Blob decryption failed, falling back to legacy state:', err.message);
-          // Fall through — restore will use legacy mode from state_json
-        }
-      }
-
-      await restore(state, sensitive);
-
-      // For manifest-style testruns, load environments and endpoints from server
-      if (state.environment_extids || state.endpoint_extids) {
-        await loadEnvironments();
-        await loadEndpoints();
-      }
-
-      // Set document tracking AFTER restore() so the stale values
-      // stored inside the snapshot don't overwrite the actual values.
-      documents.currentDocumentExtid = docExtid;
-      documents.currentTestrunExtid = testrunExtid;
-      documents.currentTestrunNumber = testrunNumber;
-      // Fingerprint should match what snapshot() produces on next autosave check.
-      // For manifest-style testruns, combine manifest + sensitive; for legacy, use full state.
-      documents.lastSavedStateHash = sensitive
-        ? stateFingerprint({ ...state, ...sensitive })
-        : stateFingerprint(state);
-      rememberLastDocument(docExtid, testrunExtid, testrunNumber);
-      breadcrumbText = `testrun #${testrunNumber}`;
-      showDropToast(`Loaded testrun #${testrunNumber}`, false);
+      const result = await loadTestrun(docExtid, testrunExtid, testrunNumber);
+      breadcrumbText = `testrun #${result.testrunNumber}`;
+      showDropToast(`Loaded testrun #${result.testrunNumber}`, false);
       startAutosave();
     } catch (err) {
       showDropToast('Load failed: ' + err.message, true);

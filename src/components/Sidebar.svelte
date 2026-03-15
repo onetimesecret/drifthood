@@ -1,14 +1,12 @@
 <script>
-  import { apiListDocuments, apiGetTestruns, apiGetTestrun, apiDeleteTestrun } from '../../lib/api.js';
+  import { apiListDocuments, apiGetTestruns, apiDeleteTestrun } from '../../lib/api.js';
+  import { loadTestrun as fetchAndRestoreTestrun } from '../lib/testrun-loader.js';
   import { relativeTime, driftIndicator } from '../../lib/format.js';
-  import { documents, resetDocuments, rememberLastDocument } from '../stores/documents.svelte.js';
-  import { endpoints, addEndpoint, clearEndpointsLocal, loadEndpoints } from '../stores/endpoints.svelte.js';
-  import { session, resetSession, seedDefaultEnvironments, loadEnvironments } from '../stores/session.svelte.js';
+  import { documents, resetDocuments } from '../stores/documents.svelte.js';
+  import { endpoints, addEndpoint, clearEndpointsLocal } from '../stores/endpoints.svelte.js';
+  import { session, resetSession, seedDefaultEnvironments } from '../stores/session.svelte.js';
   import { ui, resetUi } from '../stores/ui.svelte.js';
-  import { restore } from '../stores/snapshot.js';
-  import { stateFingerprint } from '../../lib/state.js';
-  import { getAuthKey, getEncKey } from '../stores/auth.svelte.js';
-  import { decryptBlob } from '../lib/crypto.js';
+  import { getAuthKey } from '../stores/auth.svelte.js';
 
   let { onBreadcrumb } = $props();
   let testrunsByDoc = $state({});
@@ -78,44 +76,7 @@
 
   async function loadTestrun(docExtid, testrunExtid, testrunNumber) {
     try {
-      const data = await apiGetTestrun(docExtid, testrunExtid);
-      if (data.error || !data.testrun) return;
-      const tr = data.testrun;
-      const state = tr.state;
-      if (!state) return;
-
-      // Decrypt encrypted blob if present (manifest-style testruns)
-      let sensitive = null;
-      if (tr.encrypted_blob && tr.blob_iv) {
-        try {
-          const encKey = getEncKey();
-          if (encKey) {
-            const aad = docExtid || 'doc';
-            const plaintext = await decryptBlob(encKey, tr.encrypted_blob, tr.blob_iv, aad);
-            sensitive = JSON.parse(plaintext);
-          }
-        } catch (err) {
-          console.warn('Blob decryption failed, falling back to legacy state:', err.message);
-        }
-      }
-
-      await restore(state, sensitive);
-
-      // For manifest-style testruns, load entities from server
-      if (state.environment_extids || state.endpoint_extids) {
-        await loadEnvironments();
-        await loadEndpoints();
-      }
-
-      // Set document tracking AFTER restore() so stale snapshot
-      // values don't overwrite the actual navigation target.
-      documents.currentDocumentExtid = docExtid;
-      documents.currentTestrunExtid = testrunExtid;
-      documents.currentTestrunNumber = testrunNumber;
-      documents.lastSavedStateHash = sensitive
-        ? stateFingerprint({ ...state, ...sensitive })
-        : stateFingerprint(state);
-      rememberLastDocument(docExtid, testrunExtid, testrunNumber);
+      await fetchAndRestoreTestrun(docExtid, testrunExtid, testrunNumber);
       onBreadcrumb?.(`testrun #${testrunNumber}`);
     } catch {
       // Silent failure
