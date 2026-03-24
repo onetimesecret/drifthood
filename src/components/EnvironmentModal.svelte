@@ -94,6 +94,7 @@
     </div>
     <button
       class="text-[0.8em] px-3 py-1 rounded cursor-pointer bg-transparent border border-edge text-text-primary font-mono hover:border-accent hover:text-accent"
+      data-testid="btn-done"
       onclick={onclose}
     >Done</button>
   </div>
@@ -105,18 +106,20 @@
       <div class="p-3">
         <button
           class="block w-full px-2.5 py-1.5 text-[0.8em] bg-transparent border border-dashed border-edge text-text-dim rounded-md cursor-pointer text-left hover:border-accent hover:text-accent"
+          data-testid="btn-add-environment"
           onclick={handleAdd}
         >+ Add Environment</button>
       </div>
 
       <div class="flex-1 overflow-y-auto">
-        {#each session.environments as env (env.extid)}
+        {#each session.environments as env, i (env.extid)}
           {@const inUse = isInUse(env.extid)}
           {@const selected = editingExtid === env.extid}
           <div
             role="button"
             tabindex="0"
             class="group/env flex items-center gap-2 px-3.5 py-2.5 cursor-pointer border-b border-edge text-[0.8em] hover:bg-white/[0.03] {selected ? 'bg-accent/[0.08]' : ''}"
+            data-testid="env-list-item-{i}"
             onclick={() => handleSelect(env.extid)}
             onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleSelect(env.extid); } }}
           >
@@ -134,12 +137,14 @@
             {#if inUse}
               <button
                 class="opacity-30 cursor-not-allowed bg-transparent border-none text-text-dim text-[1em] px-1 rounded-sm shrink-0"
+                data-testid="btn-remove-env-{i}"
                 title={inUse}
                 disabled
               >&times;</button>
             {:else}
               <button
                 class="opacity-0 group-hover/env:opacity-60 bg-transparent border-none text-text-dim cursor-pointer text-[1em] px-1 rounded-sm shrink-0 hover:opacity-100 hover:text-red"
+                data-testid="btn-remove-env-{i}"
                 title="Remove environment"
                 onclick={(e) => { e.stopPropagation(); handleRemove(env.extid); }}
               >&times;</button>
@@ -163,6 +168,7 @@
             <input
               class="bg-surface border border-edge text-text-primary px-2.5 py-1.5 rounded-md font-mono text-[0.85em] w-full"
               id="env-name"
+              data-testid="env-name-input"
               type="text"
               value={editingEnv.name}
               oninput={(e) => handleFieldChange('name', e.target.value)}
@@ -176,6 +182,7 @@
             <input
               class="bg-surface border border-edge text-text-primary px-2.5 py-1.5 rounded-md font-mono text-[0.85em] w-full"
               id="env-url"
+              data-testid="env-url-input"
               type="text"
               value={editingEnv.baseUrl}
               oninput={(e) => handleFieldChange('baseUrl', e.target.value)}
@@ -189,6 +196,7 @@
             <input
               class="bg-surface border border-edge text-text-primary px-2.5 py-1.5 rounded-md font-mono text-[0.85em] w-full"
               id="env-auth"
+              data-testid="env-auth-input"
               type="text"
               value={editingEnv.auth}
               oninput={(e) => handleFieldChange('auth', e.target.value)}
@@ -202,6 +210,7 @@
             <input
               class="bg-surface border border-edge text-text-dim px-2.5 py-1.5 rounded-md font-mono text-[0.85em] w-full italic placeholder:italic"
               id="env-memo"
+              data-testid="env-memo-input"
               type="text"
               value={editingEnv.memo}
               oninput={(e) => handleFieldChange('memo', e.target.value)}
@@ -218,6 +227,7 @@
                 <input
                   type="text"
                   class="flex-1 max-w-[200px] bg-bg border border-edge text-text-primary px-1.5 py-0.5 rounded font-mono text-[0.9em] min-w-[80px]"
+                  data-testid="env-meta-key-{i}"
                   placeholder="key"
                   bind:value={row.key}
                   oninput={handleMetaChange}
@@ -226,12 +236,14 @@
                 <input
                   type="text"
                   class="flex-2 bg-bg border border-edge text-text-primary px-1.5 py-0.5 rounded font-mono text-[0.9em] min-w-[80px]"
+                  data-testid="env-meta-value-{i}"
                   placeholder="value"
                   bind:value={row.val}
                   oninput={handleMetaChange}
                 />
                 <button
                   class="bg-transparent border-none text-text-dim cursor-pointer text-[1.1em] px-1.5 py-0.5 rounded shrink-0 hover:text-red hover:bg-red/10"
+                  data-testid="btn-remove-metadata-{i}"
                   title="Remove"
                   onclick={() => removeMetaRow(i)}
                 >&times;</button>
@@ -240,6 +252,7 @@
 
             <button
               class="text-[0.75em] font-mono px-2.5 py-0.5 rounded cursor-pointer border border-dashed border-edge bg-transparent text-text-dim mt-0.5 hover:border-accent hover:text-accent self-start"
+              data-testid="btn-add-metadata"
               onclick={addMetaRow}
             >+ Add</button>
           </div>

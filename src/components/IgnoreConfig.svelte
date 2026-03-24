@@ -41,7 +41,7 @@
 </script>
 
 <div class="mb-5">
-  <div class="text-[0.7em] uppercase tracking-widest text-text-dim mb-1 font-semibold cursor-pointer flex items-center gap-1.5 select-none" onclick={togglePanel} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && togglePanel()}>
+  <div class="text-[0.7em] uppercase tracking-widest text-text-dim mb-1 font-semibold cursor-pointer flex items-center gap-1.5 select-none" onclick={togglePanel} role="button" tabindex="0" onkeydown={(e) => e.key === 'Enter' && togglePanel()} data-testid="ignore-config-toggle">
     <span class="text-[0.8em] chevron" class:open={ui.ignoreOpen}>&#9654;</span>
     Ignored Fields
     {#if customCount > 0}
@@ -55,10 +55,11 @@
       placeholder={"body.created\nbody.updated\nbody.custid"}
       value={textValue}
       oninput={onTextInput}
+      data-testid="ignore-paths-input"
     ></textarea>
     <div class="text-[0.7em] text-text-dim mt-1">
       One path per line in dot notation (e.g. body.created). These fields will be excluded from comparison.
-      The server has <button type="button" onclick={toggleDefaults} class="text-accent bg-transparent border-none p-0 font-[inherit] cursor-pointer no-underline">built-in defaults</button>;
+      The server has <button type="button" onclick={toggleDefaults} class="text-accent bg-transparent border-none p-0 font-[inherit] cursor-pointer no-underline" data-testid="btn-toggle-defaults">built-in defaults</button>;
       paths here are added on top.
     </div>
 

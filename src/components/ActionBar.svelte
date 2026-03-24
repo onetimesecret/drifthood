@@ -256,42 +256,42 @@
 </script>
 
 <div class="sticky top-0 z-15 bg-bg py-2 pb-2.5 flex gap-2.5 items-center flex-wrap border-b border-edge mb-2.5">
-  <button class="btn-ghost" onclick={addEndpointDefault}>+ Add Endpoint</button>
+  <button class="btn-ghost" data-testid="btn-add-endpoint" onclick={addEndpointDefault}>+ Add Endpoint</button>
 
   <!-- Examples menu -->
   <div class="action-menu relative inline-block">
-    <button class="btn-ghost" onclick={() => toggleMenu('examples')}>Examples</button>
+    <button class="btn-ghost" data-testid="btn-examples" onclick={() => toggleMenu('examples')}>Examples</button>
     <div class="toggle-block absolute top-full left-0 bg-surface border border-edge rounded-lg p-1 z-10 min-w-[260px] mt-1 shadow-[0_8px_24px_rgba(0,0,0,0.4)]" class:open={openMenu === 'examples'}>
       <div class="text-[0.75em] text-text-dim px-3 py-1">Load example endpoint sets</div>
-      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" onclick={() => loadExampleSet('mixed')}>Mixed (GET + form + json)</button>
-      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" onclick={() => loadExampleSet('query-only')}>Query-only (GET)</button>
-      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" onclick={() => loadExampleSet('form-only')}>Form-only (POST)</button>
-      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" onclick={() => loadExampleSet('json-only')}>JSON-only (POST)</button>
+      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" data-testid="example-mixed" onclick={() => loadExampleSet('mixed')}>Mixed (GET + form + json)</button>
+      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" data-testid="example-query-only" onclick={() => loadExampleSet('query-only')}>Query-only (GET)</button>
+      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" data-testid="example-form-only" onclick={() => loadExampleSet('form-only')}>Form-only (POST)</button>
+      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" data-testid="example-json-only" onclick={() => loadExampleSet('json-only')}>JSON-only (POST)</button>
     </div>
   </div>
 
   <!-- Import menu -->
   <div class="action-menu relative inline-block">
-    <button class="btn-ghost" onclick={() => toggleMenu('import')}>Import</button>
+    <button class="btn-ghost" data-testid="btn-import" onclick={() => toggleMenu('import')}>Import</button>
     <div class="toggle-block absolute top-full left-0 bg-surface border border-edge rounded-lg p-1 z-10 min-w-[260px] mt-1 shadow-[0_8px_24px_rgba(0,0,0,0.4)]" class:open={openMenu === 'import'}>
-      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" onclick={openOpenapiModal}>From OpenAPI spec...</button>
-      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" onclick={triggerImport}>From file (.json/.html)...</button>
+      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" data-testid="import-openapi" onclick={openOpenapiModal}>From OpenAPI spec...</button>
+      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" data-testid="import-file" onclick={triggerImport}>From file (.json/.html)...</button>
       <div class="text-[0.7em] text-text-dim px-3 py-1.5 border-t border-edge mt-1">Or drag &amp; drop a file onto the page</div>
     </div>
   </div>
 
   <!-- Export menu -->
   <div class="action-menu relative inline-block">
-    <button class="btn-ghost" onclick={() => toggleMenu('export')}>Export</button>
+    <button class="btn-ghost" data-testid="btn-export" onclick={() => toggleMenu('export')}>Export</button>
     <div class="toggle-block absolute top-full left-0 bg-surface border border-edge rounded-lg p-1 z-10 min-w-[260px] mt-1 shadow-[0_8px_24px_rgba(0,0,0,0.4)]" class:open={openMenu === 'export'}>
-      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" onclick={exportJson}>Current state as JSON</button>
-      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" onclick={exportHtml}>Snapshot as HTML</button>
+      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" data-testid="export-json" onclick={exportJson}>Current state as JSON</button>
+      <button class="block w-full text-left bg-transparent border-none text-text-primary px-3 py-2 rounded text-[0.85em] cursor-pointer hover:bg-white/5" data-testid="export-html" onclick={exportHtml}>Snapshot as HTML</button>
     </div>
   </div>
 
-  <button class="btn-ghost" onclick={openSchemaDiffModal}>Diff Schemas</button>
+  <button class="btn-ghost" data-testid="btn-diff-schemas" onclick={openSchemaDiffModal}>Diff Schemas</button>
 
-  <button class="btn-primary" onclick={runAll} disabled={running || total === 0}>
+  <button class="btn-primary" data-testid="btn-run-all" onclick={runAll} disabled={running || total === 0}>
     {#if running}
       <span class="inline-block w-3 h-3 border-2 border-edge border-t-accent rounded-full animate-spin"></span> Running...
     {:else}
@@ -299,13 +299,13 @@
     {/if}
   </button>
 
-  <button class="btn-ghost" onclick={handleClearRuns} disabled={!hasResults}>Clear Runs</button>
+  <button class="btn-ghost" data-testid="btn-clear-runs" onclick={handleClearRuns} disabled={!hasResults}>Clear Runs</button>
 
   {#if hasResults}
     <div class="flex gap-1">
-      <button class="text-[0.7em] px-2 py-0.5 rounded-full cursor-pointer border bg-bg {ui.filter === 'all' ? 'border-accent text-accent bg-accent/10' : 'border-edge text-text-dim'}" onclick={() => setFilter('all')}>All</button>
-      <button class="text-[0.7em] px-2 py-0.5 rounded-full cursor-pointer border bg-bg {ui.filter === 'drift' ? 'border-accent text-accent bg-accent/10' : 'border-edge text-text-dim'}" onclick={() => setFilter('drift')}>Drifts</button>
-      <button class="text-[0.7em] px-2 py-0.5 rounded-full cursor-pointer border bg-bg {ui.filter === 'ok' ? 'border-accent text-accent bg-accent/10' : 'border-edge text-text-dim'}" onclick={() => setFilter('ok')}>OK</button>
+      <button class="text-[0.7em] px-2 py-0.5 rounded-full cursor-pointer border bg-bg {ui.filter === 'all' ? 'border-accent text-accent bg-accent/10' : 'border-edge text-text-dim'}" data-testid="filter-all" onclick={() => setFilter('all')}>All</button>
+      <button class="text-[0.7em] px-2 py-0.5 rounded-full cursor-pointer border bg-bg {ui.filter === 'drift' ? 'border-accent text-accent bg-accent/10' : 'border-edge text-text-dim'}" data-testid="filter-drifts" onclick={() => setFilter('drift')}>Drifts</button>
+      <button class="text-[0.7em] px-2 py-0.5 rounded-full cursor-pointer border bg-bg {ui.filter === 'ok' ? 'border-accent text-accent bg-accent/10' : 'border-edge text-text-dim'}" data-testid="filter-ok" onclick={() => setFilter('ok')}>OK</button>
     </div>
   {/if}
 
@@ -325,6 +325,7 @@
   type="file"
   accept=".json,.html,.htm"
   class="hidden"
+  data-testid="input-import-file"
   bind:this={fileInput}
   onchange={handleFileImport}
 />

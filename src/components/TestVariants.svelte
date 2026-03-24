@@ -179,16 +179,19 @@
       {#if !generated}
         <button
           class="text-[0.65em] font-mono px-[7px] py-[3px] rounded cursor-pointer border border-edge bg-bg text-purple hover:border-purple"
+          data-testid="btn-generate-variants"
           onclick={generateVariants}
         >Generate</button>
       {:else}
         <button
           class="text-[0.65em] font-mono px-[7px] py-[3px] rounded cursor-pointer border border-edge bg-bg text-accent hover:border-accent"
+          data-testid="btn-run-all-variants"
           onclick={runAll}
           disabled={running}
         >{running ? 'Running...' : 'Run All'}</button>
         <button
           class="text-[0.65em] font-mono px-[7px] py-[3px] rounded cursor-pointer border border-edge bg-bg text-text-dim hover:text-red hover:border-red"
+          data-testid="btn-clear-variants"
           onclick={clear}
         >Clear</button>
         <span class="text-[0.65em] text-text-dim font-mono">{variants.length} variants</span>
@@ -197,7 +200,7 @@
 
     {#if generated && variants.length > 0}
       <div class="max-h-[200px] overflow-y-auto">
-        {#each variants as v}
+        {#each variants as v, vi}
           <div class="flex items-center gap-2 py-0.5 text-[0.75em] font-mono">
             <span class="w-2 h-2 rounded-full shrink-0
               {v.state === 'done-ok' ? 'bg-green' : v.state === 'done-drift' ? 'bg-red' : v.state === 'running' ? 'bg-accent animate-pulse' : 'bg-edge'}">
@@ -207,6 +210,7 @@
             {#if v.state === 'idle'}
               <button
                 class="text-[0.7em] px-1.5 py-px rounded bg-transparent border border-edge text-text-dim cursor-pointer hover:text-accent hover:border-accent"
+                data-testid="btn-run-variant-{vi}"
                 onclick={() => runVariant(v)}
               >run</button>
             {:else if v.state === 'running'}

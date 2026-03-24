@@ -96,9 +96,9 @@
       <h4 class="text-[0.8em] text-text-dim uppercase tracking-wider mb-1.5">
         {sec.label}
         {#if secIdx === 0}
-          {' '}<button class="text-[0.75em] text-yellow cursor-pointer bg-transparent border border-yellow px-2 py-0.5 rounded ml-2 align-middle font-normal normal-case tracking-normal hover:bg-yellow/15 {copyClass === 'copied' ? 'text-green border-green' : ''}" onclick={(e) => { e.stopPropagation(); copySummary(); }}>{copyLabel}</button>
-          {' '}<button class="text-[0.75em] text-cyan cursor-pointer bg-transparent border border-cyan px-2 py-0.5 rounded ml-1 align-middle font-normal normal-case tracking-normal hover:bg-cyan/15 {curlClassA === 'copied' ? 'text-green border-green' : ''}" onclick={(e) => { e.stopPropagation(); copyCurl('a'); }}>{curlLabelA}</button>
-          {' '}<button class="text-[0.75em] text-cyan cursor-pointer bg-transparent border border-cyan px-2 py-0.5 rounded ml-1 align-middle font-normal normal-case tracking-normal hover:bg-cyan/15 {curlClassB === 'copied' ? 'text-green border-green' : ''}" onclick={(e) => { e.stopPropagation(); copyCurl('b'); }}>{curlLabelB}</button>
+          {' '}<button class="text-[0.75em] text-yellow cursor-pointer bg-transparent border border-yellow px-2 py-0.5 rounded ml-2 align-middle font-normal normal-case tracking-normal hover:bg-yellow/15 {copyClass === 'copied' ? 'text-green border-green' : ''}" data-testid="diff-copy-summary" onclick={(e) => { e.stopPropagation(); copySummary(); }}>{copyLabel}</button>
+          {' '}<button class="text-[0.75em] text-cyan cursor-pointer bg-transparent border border-cyan px-2 py-0.5 rounded ml-1 align-middle font-normal normal-case tracking-normal hover:bg-cyan/15 {curlClassA === 'copied' ? 'text-green border-green' : ''}" data-testid="diff-copy-curl-a" onclick={(e) => { e.stopPropagation(); copyCurl('a'); }}>{curlLabelA}</button>
+          {' '}<button class="text-[0.75em] text-cyan cursor-pointer bg-transparent border border-cyan px-2 py-0.5 rounded ml-1 align-middle font-normal normal-case tracking-normal hover:bg-cyan/15 {curlClassB === 'copied' ? 'text-green border-green' : ''}" data-testid="diff-copy-curl-b" onclick={(e) => { e.stopPropagation(); copyCurl('b'); }}>{curlLabelB}</button>
           {#if ignoredCount > 0}
             {' '}<span class="text-[0.7em] text-text-dim font-mono px-1.5 py-0.5 rounded bg-text-dim/10 border border-edge ml-2 cursor-help" title={ignoredTooltip}>{ignoredCount} fields ignored</span>
           {/if}
@@ -130,9 +130,9 @@
   {/each}
 
   {#if sections.length === 0}
-    <button class="text-[0.75em] text-yellow cursor-pointer bg-transparent border border-yellow px-2 py-0.5 rounded ml-2 align-middle font-normal normal-case tracking-normal hover:bg-yellow/15 {copyClass === 'copied' ? 'text-green border-green' : ''}" onclick={(e) => { e.stopPropagation(); copySummary(); }}>{copyLabel}</button>
-    {' '}<button class="text-[0.75em] text-cyan cursor-pointer bg-transparent border border-cyan px-2 py-0.5 rounded ml-1 align-middle font-normal normal-case tracking-normal hover:bg-cyan/15 {curlClassA === 'copied' ? 'text-green border-green' : ''}" onclick={(e) => { e.stopPropagation(); copyCurl('a'); }}>{curlLabelA}</button>
-    {' '}<button class="text-[0.75em] text-cyan cursor-pointer bg-transparent border border-cyan px-2 py-0.5 rounded ml-1 align-middle font-normal normal-case tracking-normal hover:bg-cyan/15 {curlClassB === 'copied' ? 'text-green border-green' : ''}" onclick={(e) => { e.stopPropagation(); copyCurl('b'); }}>{curlLabelB}</button>
+    <button class="text-[0.75em] text-yellow cursor-pointer bg-transparent border border-yellow px-2 py-0.5 rounded ml-2 align-middle font-normal normal-case tracking-normal hover:bg-yellow/15 {copyClass === 'copied' ? 'text-green border-green' : ''}" data-testid="diff-copy-summary-fallback" onclick={(e) => { e.stopPropagation(); copySummary(); }}>{copyLabel}</button>
+    {' '}<button class="text-[0.75em] text-cyan cursor-pointer bg-transparent border border-cyan px-2 py-0.5 rounded ml-1 align-middle font-normal normal-case tracking-normal hover:bg-cyan/15 {curlClassA === 'copied' ? 'text-green border-green' : ''}" data-testid="diff-copy-curl-a-fallback" onclick={(e) => { e.stopPropagation(); copyCurl('a'); }}>{curlLabelA}</button>
+    {' '}<button class="text-[0.75em] text-cyan cursor-pointer bg-transparent border border-cyan px-2 py-0.5 rounded ml-1 align-middle font-normal normal-case tracking-normal hover:bg-cyan/15 {curlClassB === 'copied' ? 'text-green border-green' : ''}" data-testid="diff-copy-curl-b-fallback" onclick={(e) => { e.stopPropagation(); copyCurl('b'); }}>{curlLabelB}</button>
     {#if ignoredCount > 0}
       {' '}<span class="text-[0.7em] text-text-dim font-mono px-1.5 py-0.5 rounded bg-text-dim/10 border border-edge ml-2 cursor-help" title={ignoredTooltip}>{ignoredCount} fields ignored</span>
     {/if}

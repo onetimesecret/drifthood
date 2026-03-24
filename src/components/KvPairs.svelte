@@ -55,6 +55,7 @@
         class="flex-1 max-w-[200px] bg-bg border border-edge text-text-primary px-1.5 py-0.5 rounded font-mono text-[0.9em] min-w-[80px]"
         placeholder="key"
         bind:value={pair.key}
+        data-testid="kv-key-{i}"
       />
       <span class="text-text-dim text-[0.85em] shrink-0 select-none">=</span>
       <input
@@ -62,14 +63,16 @@
         class="flex-2 bg-bg border border-edge text-text-primary px-1.5 py-0.5 rounded font-mono text-[0.9em] min-w-[80px]"
         placeholder="value"
         bind:value={pair.val}
+        data-testid="kv-value-{i}"
       />
       <button
         class="bg-transparent border-none text-text-dim cursor-pointer text-[1.1em] px-1.5 py-0.5 rounded shrink-0 hover:text-red hover:bg-red/10"
         title="Remove"
         onclick={() => removeRow(i)}
+        data-testid="kv-remove-{i}"
       >&times;</button>
     </div>
   {/each}
 
-  <button class="text-[0.75em] font-mono px-2.5 py-0.5 rounded cursor-pointer border border-dashed border-edge bg-transparent text-text-dim mt-0.5 hover:border-accent hover:text-accent" onclick={addRow}>+ Add</button>
+  <button class="text-[0.75em] font-mono px-2.5 py-0.5 rounded cursor-pointer border border-dashed border-edge bg-transparent text-text-dim mt-0.5 hover:border-accent hover:text-accent" onclick={addRow} data-testid="kv-add">+ Add</button>
 </div>

@@ -622,6 +622,7 @@
     <div class="flex items-center gap-3 mb-1">
       <h1 class="text-[1.4em] font-semibold mb-1">Drift Detector <span class="text-[0.5em] font-normal opacity-50">v{DD_VERSION}</span></h1>
       <button
+        data-testid="btn-save"
         class="btn-ghost ml-auto"
         style={saveStatus.color ? `color:${saveStatus.color}` : ''}
         onclick={saveTestrun}
@@ -632,6 +633,7 @@
       {/if}
       {#if documents.currentTestrunExtid}
         <button
+          data-testid="btn-share"
           class="btn-ghost text-[0.8em]"
           onclick={copyShareLink}
           title="Copy shareable link to clipboard"
@@ -642,6 +644,7 @@
     <!-- Session header -->
     <div class="mb-4">
       <input
+        data-testid="doc-title"
         class="bg-transparent border-none text-text-primary text-[1.1em] font-semibold font-[inherit] w-full px-0 py-1 outline-none border-b border-b-transparent focus:border-b-accent placeholder:text-text-dim placeholder:font-normal"
         type="text"
         placeholder="Testrun title (optional)"
@@ -650,6 +653,7 @@
         onblur={onTitleBlur}
       />
       <textarea
+        data-testid="doc-notes"
         class="bg-transparent border-none text-text-dim text-[0.8em] font-[inherit] w-full px-0 py-0.5 outline-none resize-none border-b border-b-transparent focus:border-b-edge focus:text-text-primary leading-snug placeholder:text-text-dim"
         placeholder="Notes / context for this comparison testrun"
         rows="1"
@@ -703,7 +707,7 @@
                 {/if}
               {/if}
             </span>
-            <button class="bg-transparent border border-edge text-text-dim cursor-pointer text-[0.85em] px-2 py-0.5 rounded ml-auto hover:text-accent hover:border-accent" onclick={() => runGroup(entry.group)}>run group</button>
+            <button data-testid="btn-run-group-{entry.group}" class="bg-transparent border border-edge text-text-dim cursor-pointer text-[0.85em] px-2 py-0.5 rounded ml-auto hover:text-accent hover:border-accent" onclick={() => runGroup(entry.group)}>run group</button>
           </div>
         {:else}
           <EndpointCard endpoint={entry.ep} />
@@ -717,6 +721,7 @@
     <!-- Back to top -->
     {#if showBackToTop}
       <button
+        data-testid="btn-back-to-top"
         class="fixed bottom-6 right-6 bg-surface border border-edge text-accent w-10 h-10 rounded-full cursor-pointer text-[1.2em] flex items-center justify-center z-30 shadow-[0_4px_12px_rgba(0,0,0,0.4)] hover:bg-accent/15"
         onclick={scrollToTop}
         title="Scroll to top"
@@ -735,7 +740,7 @@
 
 <!-- Drop overlay -->
 {#if dropActive}
-  <div class="fixed inset-0 z-100 bg-[rgba(13,17,23,0.85)] flex items-center justify-center pointer-events-none">
+  <div data-testid="drop-overlay" class="fixed inset-0 z-100 bg-[rgba(13,17,23,0.85)] flex items-center justify-center pointer-events-none">
     <div class="border-2 border-dashed border-accent rounded-2xl px-16 py-12 text-center text-accent font-mono">
       <div class="text-[2.5em] mb-3">&#128230;</div>
       <div class="text-[1em] font-semibold">Drop to import</div>

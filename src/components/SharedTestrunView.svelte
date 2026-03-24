@@ -116,7 +116,7 @@
       {/if}
 
       <!-- Summary stats -->
-      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6" data-testid="shared-summary">
         <div class="bg-surface rounded-lg p-4 border border-edge">
           <div class="text-2xl font-bold text-text">{endpointCounts.total}</div>
           <div class="text-sm text-text-dim">Endpoints</div>
@@ -137,7 +137,7 @@
 
       <!-- Endpoint list (manifest portion) -->
       {#if endpoints.length > 0}
-        <section class="bg-surface rounded-lg border border-edge" aria-labelledby="endpoints-heading">
+        <section class="bg-surface rounded-lg border border-edge" aria-labelledby="endpoints-heading" data-testid="shared-endpoints">
           <h2 id="endpoints-heading" class="text-lg font-semibold text-text px-4 py-3 border-b border-edge">
             Endpoints
           </h2>
@@ -188,7 +188,7 @@
       <footer class="mt-8 text-center text-text-dim text-sm">
         <p>
           This is a read-only view of a shared testrun.
-          <a href="/" class="text-accent hover:underline">Create your own</a>
+          <a href="/" class="text-accent hover:underline" data-testid="shared-create-link">Create your own</a>
         </p>
       </footer>
     </div>
