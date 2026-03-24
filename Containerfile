@@ -1,10 +1,11 @@
 # Stage 1: Build frontend
 FROM node:22-alpine AS frontend
 WORKDIR /app
-COPY package*.json ./
-RUN npm ci
+RUN corepack enable
+COPY package.json pnpm-lock.yaml ./
+RUN pnpm install --frozen-lockfile
 COPY . .
-RUN npm run build
+RUN pnpm run build
 
 # Stage 2: Python runtime
 FROM python:3.11-slim

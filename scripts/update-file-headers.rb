@@ -114,7 +114,7 @@ class HeaderValidator
   def validate_typescript_files
     puts 'Checking TypeScript files...'
 
-    files_for_glob('src/**/*.ts').each do |file_path|
+    files_for_glob('{src,lib}/**/*.ts').each do |file_path|
       next if skip_file?(file_path)
 
       full_path = REPO_ROOT / file_path
@@ -128,7 +128,7 @@ class HeaderValidator
   def validate_javascript_files
     puts 'Checking JavaScript files...'
 
-    files_for_glob('src/**/*.js').each do |file_path|
+    files_for_glob('{src,lib}/**/*.js').each do |file_path|
       next if skip_file?(file_path)
 
       full_path = REPO_ROOT / file_path

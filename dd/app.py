@@ -27,7 +27,7 @@ _UUID_RE = re.compile(
 )
 
 
-def create_app() -> FastAPI:
+def create_app(dist_dir: str | None = None) -> FastAPI:
     app = FastAPI(title="Drift Detector")
     app.add_middleware(
         CORSMiddleware,
@@ -45,51 +45,61 @@ def create_app() -> FastAPI:
     app.include_router(openapi_router)
 
     # ── Frontend (Vite build output) ──
-    # Only mount if dist/ exists (production). In dev, use Vite on :5899.
-    dist_dir = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)), "dist"
-    )
+    # Routes are always registered. In dev/test without a build, they
+    # return 503 instead of silently missing from the router.
+    if dist_dir is None:
+        dist_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "dist"
+        )
     index_html = os.path.join(dist_dir, "index.html")
 
-    if os.path.isfile(index_html):
-        @app.get("/")
-        async def index():
-            return FileResponse(index_html)
-
-        # SPA fallback — serve index.html for /s/{extid} session routes.
-        # Rejects non-UUID paths and unknown session extids with 404.
-        @app.get("/s/{extid:path}")
-        async def session_spa_fallback(extid: str):
-            if not _UUID_RE.match(extid):
-                raise HTTPException(status_code=404, detail="Not found")
-            session = store.get_session_by_extid(extid)
-            if not session:
-                raise HTTPException(status_code=404, detail="Not found")
-            return FileResponse(index_html)
-
-        # SPA fallback — serve index.html for /e/{extid} environment detail routes
-        @app.get("/e/{extid:path}")
-        async def environment_spa_fallback(extid: str):
-            if not _UUID_RE.match(extid):
-                raise HTTPException(status_code=404, detail="Not found")
-            return FileResponse(index_html)
-
-        # SPA fallback — serve index.html for /t/{extid} shared testrun routes.
-        # Only validates UUID format; DB validation happens in /api/share/{extid}.
-        @app.get("/t/{extid:path}")
-        async def testrun_spa_fallback(extid: str):
-            if not _UUID_RE.match(extid):
-                raise HTTPException(status_code=404, detail="Not found")
-            return FileResponse(index_html)
-
-        # Vite puts hashed JS/CSS in dist/assets/
-        assets_dir = os.path.join(dist_dir, "assets")
-        if os.path.isdir(assets_dir):
-            app.mount(
-                "/assets",
-                StaticFiles(directory=assets_dir),
-                name="assets",
+    def _serve_index():
+        """Return index.html or raise 503 if frontend is not built."""
+        if not os.path.isfile(index_html):
+            raise HTTPException(
+                status_code=503,
+                detail="Frontend not built — run npm run build",
             )
+        return FileResponse(index_html)
+
+    @app.get("/")
+    async def index():
+        return _serve_index()
+
+    # SPA fallback — serve index.html for /s/{extid} session routes.
+    # Rejects non-UUID paths and unknown session extids with 404.
+    @app.get("/s/{extid:path}")
+    async def session_spa_fallback(extid: str):
+        if not _UUID_RE.match(extid):
+            raise HTTPException(status_code=404, detail="Not found")
+        session = store.get_session_by_extid(extid)
+        if not session:
+            raise HTTPException(status_code=404, detail="Not found")
+        return _serve_index()
+
+    # SPA fallback — serve index.html for /e/{extid} environment detail routes
+    @app.get("/e/{extid:path}")
+    async def environment_spa_fallback(extid: str):
+        if not _UUID_RE.match(extid):
+            raise HTTPException(status_code=404, detail="Not found")
+        return _serve_index()
+
+    # SPA fallback — serve index.html for /t/{extid} shared testrun routes.
+    # Only validates UUID format; DB validation happens in /api/share/{extid}.
+    @app.get("/t/{extid:path}")
+    async def testrun_spa_fallback(extid: str):
+        if not _UUID_RE.match(extid):
+            raise HTTPException(status_code=404, detail="Not found")
+        return _serve_index()
+
+    # Vite puts hashed JS/CSS in dist/assets/
+    assets_dir = os.path.join(dist_dir, "assets")
+    if os.path.isdir(assets_dir):
+        app.mount(
+            "/assets",
+            StaticFiles(directory=assets_dir),
+            name="assets",
+        )
 
     return app
 
