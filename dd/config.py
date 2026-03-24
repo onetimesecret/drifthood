@@ -1,4 +1,4 @@
-# drift-detector/dd/config.py
+# dd/config.py
 
 """
 Centralized configuration. Every env var read lives here.

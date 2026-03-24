@@ -1,3 +1,5 @@
+# dd/environments.py
+
 """Environment CRUD routes. Environments are server-synced, encrypted client-side."""
 
 from fastapi import APIRouter, Request, HTTPException

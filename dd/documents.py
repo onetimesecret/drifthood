@@ -1,4 +1,4 @@
-# drift-detector/dd/documents.py
+# dd/documents.py
 
 """
 Document and testrun CRUD routes.

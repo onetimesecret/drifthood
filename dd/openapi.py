@@ -1,4 +1,4 @@
-# drift-detector/dd/openapi.py
+# dd/openapi.py
 
 """
 OpenAPI spec parsing and schema diff routes.

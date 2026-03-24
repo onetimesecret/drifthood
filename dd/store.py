@@ -1,4 +1,4 @@
-# drift-detector/dd/store.py
+# dd/store.py
 
 """
 SQLite / Turso storage for Drift Detector documents and testruns.

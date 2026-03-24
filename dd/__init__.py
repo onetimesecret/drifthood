@@ -1,4 +1,4 @@
-# drift-detector/dd/__init__.py
+# dd/__init__.py
 
 """Drift Detector - Compare API responses across two hosts."""
 

@@ -1,4 +1,4 @@
-# drift-detector/dd/app.py
+# dd/app.py
 
 """
 Drift Detector - FastAPI app factory.
