@@ -1,4 +1,7 @@
 .serena
+.claude
+
+*.lock
 
 # Data directory (DB files)
 data/
