@@ -665,6 +665,7 @@
     <div class="flex items-center gap-2 mb-2">
       <span class="text-[0.7em] uppercase tracking-widest text-text-dim font-semibold">Environments</span>
       <button
+        data-testid="btn-manage-environments"
         class="text-[0.7em] text-text-dim hover:text-accent cursor-pointer bg-transparent border border-edge px-2 py-0.5 rounded font-mono hover:border-accent"
         onclick={() => { ui.activeModal = 'environments'; }}
       >Manage</button>
@@ -687,7 +688,7 @@
     {#if breadcrumbText}
       <div class="flex items-center gap-2 text-[0.75em] font-mono text-text-dim px-2.5 py-1 bg-surface border border-edge rounded mb-2.5">
         <span class="text-accent">{breadcrumbText}</span>
-        <button class="cursor-pointer text-text-dim bg-transparent border-none text-[1em] px-1 hover:text-red" onclick={dismissBreadcrumb}>&times;</button>
+        <button data-testid="btn-dismiss-breadcrumb" class="cursor-pointer text-text-dim bg-transparent border-none text-[1em] px-1 hover:text-red" onclick={dismissBreadcrumb}>&times;</button>
       </div>
     {/if}
 

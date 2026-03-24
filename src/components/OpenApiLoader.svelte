@@ -134,7 +134,7 @@
 <Modal open={open} onclose={handleClose}>
   <div class="flex items-center justify-between px-[18px] py-3.5 border-b border-edge">
     <h3 class="text-[0.95em] font-semibold">Import from OpenAPI Spec</h3>
-    <button class="bg-transparent border-none text-text-dim cursor-pointer text-[1.3em] px-1 rounded hover:text-red" onclick={handleClose}>&times;</button>
+    <button data-testid="btn-close-openapi" class="bg-transparent border-none text-text-dim cursor-pointer text-[1.3em] px-1 rounded hover:text-red" onclick={handleClose}>&times;</button>
   </div>
 
   <div class="p-[18px] overflow-y-auto flex-1">

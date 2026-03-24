@@ -118,7 +118,7 @@
 <div class="w-[250px] min-w-[250px] bg-surface border-r border-edge flex flex-col overflow-hidden transition-all duration-150 {ui.sidebarCollapsed ? 'w-0 min-w-0 border-r-0' : ''}">
   <div class="flex items-center justify-between px-3.5 py-3 border-b border-edge shrink-0">
     <h2 class="text-[0.75em] uppercase tracking-widest text-text-dim font-semibold whitespace-nowrap">Documents</h2>
-    <button data-testid="btn-sidebar-toggle" class="bg-transparent border-none text-text-dim cursor-pointer text-[1em] px-1.5 py-0.5 rounded hover:text-text-primary hover:bg-white/5" onclick={toggleSidebar} title="Collapse sidebar">&#9666;</button>
+    <button data-testid="btn-sidebar-collapse" class="bg-transparent border-none text-text-dim cursor-pointer text-[1em] px-1.5 py-0.5 rounded hover:text-text-primary hover:bg-white/5" onclick={toggleSidebar} title="Collapse sidebar">&#9666;</button>
   </div>
 
   <button data-testid="btn-new-document" class="block w-[calc(100%-24px)] mx-3 my-2 px-2.5 py-1.5 text-[0.8em] bg-transparent border border-dashed border-edge text-text-dim rounded-md cursor-pointer text-left hover:border-accent hover:text-accent" onclick={newDocument}>+ New document</button>
@@ -194,7 +194,7 @@
 </div>
 
 <button
-  data-testid="btn-sidebar-toggle"
+  data-testid="btn-sidebar-expand"
   class="fixed top-2.5 left-2.5 z-20 bg-surface border border-edge text-text-dim cursor-pointer px-2 py-1 rounded text-[0.8em] hover:text-text-primary hover:border-text-dim {ui.sidebarCollapsed ? 'block' : 'hidden'}"
   onclick={toggleSidebar}
   title="Expand sidebar"

@@ -196,7 +196,7 @@
       {maskedToken(getToken())}
     </span>
     <button
-      data-testid="btn-copy-token"
+      data-testid="btn-copy-token-bar"
       class="bg-transparent border border-edge text-text-dim px-2 py-0.5 rounded cursor-pointer text-[0.85em] hover:text-accent hover:border-accent"
       onclick={copyTokenBar}
     >{copiedBar ? 'Copied' : 'Copy'}</button>
@@ -223,7 +223,7 @@
           </div>
           <div class="flex items-center gap-2 mb-3">
             <button
-              data-testid="btn-copy-token"
+              data-testid="btn-copy-generated-token"
               class="bg-transparent border border-edge text-text-dim px-3 py-1 rounded cursor-pointer text-[0.8em] hover:text-accent hover:border-accent"
               onclick={() => copyToken(generatedToken)}
             >{copied ? 'Copied' : 'Copy'}</button>
@@ -232,6 +232,7 @@
             Save this token -- it is the only way to access your data later.
           </p>
           <button
+            data-testid="btn-continue-to-app"
             class="mt-4 w-full bg-[#238636] border-[#2ea043] text-white px-4 py-2 rounded-md text-[0.85em] font-medium cursor-pointer hover:bg-[#2ea043]"
             onclick={() => { generatedToken = null; setVibe('fresh'); }}
           >Continue to app</button>
