@@ -187,3 +187,78 @@ class TestClassifySeverityReasonsStructure:
         severity, reasons = classify_severity(diff, None, 200, 200)
         # Should be "user.email", not "root['body']['user']['email']"
         assert reasons[0]["path"] == "user.email"
+
+
+class TestClassifySeverityArrayChanges:
+    """Tests for array item additions and removals (structural)."""
+
+    def test_array_item_added(self):
+        """Adding an item to an array is structural."""
+        diff = {"iterable_item_added": {"root['body']['items'][2]": {"id": 3, "name": "new"}}}
+        severity, reasons = classify_severity(diff, None, 200, 200)
+        assert severity == "structural"
+        assert len(reasons) == 1
+        assert reasons[0]["category"] == "array_item_added"
+        assert reasons[0]["severity"] == "structural"
+
+    def test_array_item_removed(self):
+        """Removing an item from an array is structural."""
+        diff = {"iterable_item_removed": {"root['body']['items'][1]": {"id": 2, "name": "deleted"}}}
+        severity, reasons = classify_severity(diff, None, 200, 200)
+        assert severity == "structural"
+        assert len(reasons) == 1
+        assert reasons[0]["category"] == "array_item_removed"
+        assert reasons[0]["severity"] == "structural"
+
+    def test_multiple_array_items_added(self):
+        """Multiple array item additions produce multiple reasons."""
+        diff = {"iterable_item_added": {
+            "root['body']['items'][2]": {"id": 3},
+            "root['body']['items'][3]": {"id": 4},
+        }}
+        severity, reasons = classify_severity(diff, None, 200, 200)
+        assert severity == "structural"
+        assert len(reasons) == 2
+        assert all(r["category"] == "array_item_added" for r in reasons)
+
+    def test_array_item_added_path_extraction(self):
+        """Array index is stripped from path, keeping field hierarchy."""
+        diff = {"iterable_item_added": {"root['body']['users'][5]['profile']": {"bio": "hello"}}}
+        severity, reasons = classify_severity(diff, None, 200, 200)
+        # Path should be "users.profile", not include the numeric index
+        assert "users" in reasons[0]["path"]
+
+    def test_mixed_array_and_field_changes(self):
+        """Array changes combined with field changes."""
+        diff = {
+            "iterable_item_added": {"root['body']['items'][2]": {"id": 3}},
+            "dictionary_item_removed": {"root['body']['count']": 10},
+            "values_changed": {"root['body']['name']": {"old_value": "a", "new_value": "b"}},
+        }
+        severity, reasons = classify_severity(diff, None, 200, 200)
+        # structural beats cosmetic
+        assert severity == "structural"
+        # Should have 3 reasons: array_item_added, field_removed, value_changed
+        categories = [r["category"] for r in reasons]
+        assert "array_item_added" in categories
+        assert "field_removed" in categories
+        assert "value_changed" in categories
+
+    def test_array_item_removed_with_required_schema(self):
+        """Array item removal is structural even with schema (array contents not typed)."""
+        diff = {"iterable_item_removed": {"root['body']['items'][0]": {"id": 1}}}
+        schema = {"200": [{"path": "items", "required": True}]}
+        severity, reasons = classify_severity(diff, schema, 200, 200)
+        # Array item removal is structural, not breaking (the array still exists)
+        assert severity == "structural"
+        assert reasons[0]["category"] == "array_item_removed"
+
+    def test_breaking_beats_array_structural(self):
+        """Breaking changes (like required field removal) beat array changes."""
+        diff = {
+            "iterable_item_added": {"root['body']['items'][2]": {"id": 3}},
+            "dictionary_item_removed": {"root['body']['id']": 123},
+        }
+        schema = {"200": [{"path": "id", "required": True}]}
+        severity, reasons = classify_severity(diff, schema, 200, 200)
+        assert severity == "breaking"

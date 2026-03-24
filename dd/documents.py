@@ -150,3 +150,69 @@ async def delete_testrun(doc_extid: str, testrun_extid: str, request: Request):
     if not ok:
         raise HTTPException(status_code=404, detail="Testrun not found or already deleted")
     return {"ok": True}
+
+
+@router.get("/api/documents/{doc_extid}/diff")
+async def diff_testruns_route(doc_extid: str, a: str, b: str, request: Request):
+    """Compute diff between two testruns within the same document.
+
+    Query params:
+        a: extid of first testrun (baseline)
+        b: extid of second testrun (comparison)
+
+    Both testruns must:
+        - exist and not be soft-deleted
+        - belong to the same document (identified by doc_extid)
+        - be owned by the current session
+    """
+    session_hash = get_session_hash(request)
+    doc = store.get_document_by_extid(doc_extid)
+    if not doc or doc.get("session_hash") != session_hash:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    # SECURITY: Use get_active_testrun_by_extid to filter out soft-deleted testruns
+    testrun_a = store.get_active_testrun_by_extid(a)
+    if not testrun_a:
+        raise HTTPException(status_code=404, detail="Testrun A not found")
+    if testrun_a["document_id"] != doc["id"]:
+        raise HTTPException(status_code=400, detail="Testrun A does not belong to this document")
+
+    testrun_b = store.get_active_testrun_by_extid(b)
+    if not testrun_b:
+        raise HTTPException(status_code=404, detail="Testrun B not found")
+    if testrun_b["document_id"] != doc["id"]:
+        raise HTTPException(status_code=400, detail="Testrun B does not belong to this document")
+
+    diff_result = store.diff_testruns(testrun_a, testrun_b)
+    return {
+        "diff": diff_result,
+        "testrun_a": _ext_testrun(testrun_a),
+        "testrun_b": _ext_testrun(testrun_b),
+    }
+
+
+@router.get("/api/share/{testrun_extid}")
+async def get_shared_testrun(testrun_extid: str):
+    """Get a testrun for public sharing (no auth required).
+
+    CRITICAL: Uses get_active_testrun_by_extid which filters deleted_at.
+    Deleted testruns MUST return 404 to prevent information disclosure.
+    """
+    # SECURITY: Must use get_active_testrun_by_extid (not get_testrun_by_extid)
+    # to ensure soft-deleted testruns are not accessible via share links.
+    testrun = store.get_active_testrun_by_extid(testrun_extid)
+    if not testrun:
+        raise HTTPException(status_code=404, detail="Testrun not found")
+
+    # Include document metadata for display (title, etc.)
+    doc = store.get_document(testrun["document_id"])
+    if not doc:
+        raise HTTPException(status_code=404, detail="Document not found")
+
+    return {
+        "testrun": _ext_testrun(testrun),
+        "document": {
+            "extid": doc.get("extid"),
+            "title": doc.get("title"),
+        },
+    }

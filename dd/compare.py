@@ -33,6 +33,7 @@ class ResponseSchemaField(BaseModel):
     format: str = ""
     description: str = ""
     drift_ignore: bool = False
+    deprecated: bool = False
 
 
 class CompareRequest(BaseModel):
@@ -245,8 +246,9 @@ def classify_severity(
         if _severity_order(new_sev) > _severity_order(max_severity):
             max_severity = new_sev
 
-    # Build required-field lookup from schema
+    # Build required-field and deprecated-field lookups from schema
     required_fields: set[str] = set()
+    deprecated_fields: set[str] = set()
     if response_schema:
         # response_schema is keyed by status code string
         for status_str, fields in response_schema.items():
@@ -254,6 +256,8 @@ def classify_severity(
                 fd = f.model_dump() if hasattr(f, "model_dump") else f
                 if fd.get("required"):
                     required_fields.add(fd["path"])
+                if fd.get("deprecated"):
+                    deprecated_fields.add(fd["path"])
 
     # Status code change = breaking (includes None from connection errors)
     if status_a != status_b:
@@ -282,11 +286,20 @@ def classify_severity(
     for path, value in diff.get("dictionary_item_removed", {}).items():
         field_path = _extract_field_path(path)
         is_required = field_path in required_fields
+        is_deprecated = field_path in deprecated_fields
+        # Base severity: breaking for required, structural for optional
         sev = "breaking" if is_required else "structural"
+        detail = "missing in B"
+        # Deprecated fields get severity downgrade:
+        # - breaking (required) -> structural
+        # - structural (optional) -> cosmetic
+        if is_deprecated:
+            sev = "structural" if is_required else "cosmetic"
+            detail = "missing in B (deprecated)"
         reasons.append({
             "category": "field_removed",
             "path": field_path,
-            "detail": "missing in B",
+            "detail": detail,
             "severity": sev,
         })
         upgrade(sev)

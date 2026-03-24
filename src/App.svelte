@@ -9,6 +9,7 @@
   import EndpointCard from './components/EndpointCard.svelte';
   import OpenApiLoader from './components/OpenApiLoader.svelte';
   import SchemaDiff from './components/SchemaDiff.svelte';
+  import SharedTestrunView from './components/SharedTestrunView.svelte';
 
   import { DD_VERSION } from '../lib/examples.js';
   import { stateFingerprint } from '../lib/state.js';
@@ -26,19 +27,27 @@
   import { runConcurrent } from '../lib/concurrent.js';
 
   // ── Route state ──
-  let currentView = $state('session');  // 'session' | 'environment'
+  let currentView = $state('session');  // 'session' | 'environment' | 'shared-testrun'
   let envDetailExtid = $state(null);
+  let sharedTestrunExtid = $state(null);
 
   // Parse route from URL
   function parseRoute() {
     const path = window.location.pathname;
     const envMatch = path.match(/^\/e\/(.+)/);
+    const testrunMatch = path.match(/^\/t\/(.+)/);
     if (envMatch) {
       currentView = 'environment';
       envDetailExtid = decodeURIComponent(envMatch[1]);
+      sharedTestrunExtid = null;
+    } else if (testrunMatch) {
+      currentView = 'shared-testrun';
+      sharedTestrunExtid = decodeURIComponent(testrunMatch[1]);
+      envDetailExtid = null;
     } else {
       currentView = 'session';
       envDetailExtid = null;
+      sharedTestrunExtid = null;
     }
   }
 
@@ -102,6 +111,25 @@
       ? `testrun #${documents.currentTestrunNumber}`
       : ''
   );
+
+  // ── Share button state ──
+  let shareButtonText = $state('Share');
+  let shareButtonTimeout = null;
+
+  async function copyShareLink() {
+    if (!documents.currentTestrunExtid) return;
+    const shareUrl = `${window.location.origin}/t/${documents.currentTestrunExtid}`;
+    try {
+      await navigator.clipboard.writeText(shareUrl);
+      shareButtonText = 'Copied';
+      if (shareButtonTimeout) clearTimeout(shareButtonTimeout);
+      shareButtonTimeout = setTimeout(() => {
+        shareButtonText = 'Share';
+      }, 2000);
+    } catch (err) {
+      console.error('Failed to copy share link:', err);
+    }
+  }
 
   // ── Event listeners on mount ──
   $effect(() => {
@@ -564,6 +592,10 @@
   }
 </script>
 
+{#if currentView === 'shared-testrun' && sharedTestrunExtid}
+  <!-- Shared testrun view: no auth required -->
+  <SharedTestrunView extid={sharedTestrunExtid} />
+{:else}
 <TokenGate>
 {#if currentView === 'environment' && envDetailExtid}
   <EnvironmentDetail extid={envDetailExtid} />
@@ -583,6 +615,13 @@
       >{saveStatus.text}</button>
       {#if docIndicator}
         <span class="text-[0.7em] text-text-dim font-mono" title="Save updates the current testrun. Autosave creates new snapshots when state changes.">{docIndicator}</span>
+      {/if}
+      {#if documents.currentTestrunExtid}
+        <button
+          class="btn-ghost text-[0.8em]"
+          onclick={copyShareLink}
+          title="Copy shareable link to clipboard"
+        >{shareButtonText}</button>
       {/if}
     </div>
 
@@ -677,6 +716,8 @@
 <SchemaDiff open={ui.activeModal === 'schema-diff'} onclose={() => { ui.activeModal = null; }} />
 <EnvironmentModal open={ui.activeModal === 'environments'} onclose={() => { ui.activeModal = null; }} />
 {/if}
+</TokenGate>
+{/if}
 
 <!-- Drop overlay -->
 {#if dropActive}
@@ -693,4 +734,3 @@
 {#if toast.visible}
   <div class="fixed bottom-6 left-1/2 -translate-x-1/2 z-[110] bg-surface border rounded-lg px-5 py-2.5 text-[0.85em] font-mono shadow-[0_8px_24px_rgba(0,0,0,0.4)] {toast.cls === 'error' ? 'border-red text-red' : toast.cls === 'ok' ? 'border-green text-green' : 'border-text-dim text-text-dim opacity-80 text-[0.78em]'}">{toast.text}</div>
 {/if}
-</TokenGate>

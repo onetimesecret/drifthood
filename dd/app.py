@@ -71,6 +71,14 @@ def create_app() -> FastAPI:
             raise HTTPException(status_code=404, detail="Not found")
         return FileResponse(os.path.join(dist_dir, "index.html"))
 
+    # SPA fallback — serve index.html for /t/{extid} shared testrun routes.
+    # Only validates UUID format; DB validation happens in /api/share/{extid}.
+    @app.get("/t/{extid:path}")
+    async def testrun_spa_fallback(extid: str):
+        if not _UUID_RE.match(extid):
+            raise HTTPException(status_code=404, detail="Not found")
+        return FileResponse(os.path.join(dist_dir, "index.html"))
+
     # Vite puts hashed JS/CSS in dist/assets/
     app.mount(
         "/assets",

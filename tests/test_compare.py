@@ -10,6 +10,7 @@ from dd.compare import (
     _type_matches,
     _get_nested,
     validate_response_against_schema,
+    classify_severity,
 )
 from dd.config import derive_ignore_paths
 
@@ -333,3 +334,341 @@ class TestDeriveIgnorePaths:
         ]
         result = derive_ignore_paths(fields)
         assert result == []
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# classify_severity — deprecated field handling
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestClassifySeverityDeprecation:
+    """Tests for classify_severity severity downgrades on deprecated fields.
+
+    The deprecation downgrade rule:
+    - Removing a deprecated required field: breaking -> structural
+    - Removing a deprecated optional field: structural -> cosmetic
+    - Non-deprecated fields: no downgrade (stays at base severity)
+    - Value changes on deprecated fields: stays cosmetic (already lowest)
+    """
+
+    def test_deprecated_required_removal_downgrades_to_structural(self):
+        """Removing a deprecated required field is structural, not breaking."""
+        diff = {
+            "dictionary_item_removed": {
+                "root['body']['old_field']": "some_value"
+            }
+        }
+        schema = {
+            "200": [
+                {"path": "old_field", "type": "string", "required": True, "deprecated": True}
+            ]
+        }
+        severity, reasons = classify_severity(diff, schema, 200, 200)
+        assert severity == "structural"
+        assert len(reasons) == 1
+        assert reasons[0]["category"] == "field_removed"
+        assert reasons[0]["severity"] == "structural"
+        assert "deprecated" in reasons[0]["detail"]
+
+    def test_deprecated_optional_removal_downgrades_to_cosmetic(self):
+        """Removing a deprecated optional field is cosmetic, not structural."""
+        diff = {
+            "dictionary_item_removed": {
+                "root['body']['legacy_field']": "old_value"
+            }
+        }
+        schema = {
+            "200": [
+                {"path": "legacy_field", "type": "string", "required": False, "deprecated": True}
+            ]
+        }
+        severity, reasons = classify_severity(diff, schema, 200, 200)
+        assert severity == "cosmetic"
+        assert len(reasons) == 1
+        assert reasons[0]["category"] == "field_removed"
+        assert reasons[0]["severity"] == "cosmetic"
+        assert "deprecated" in reasons[0]["detail"]
+
+    def test_non_deprecated_required_removal_stays_breaking(self):
+        """Removing a non-deprecated required field is still breaking."""
+        diff = {
+            "dictionary_item_removed": {
+                "root['body']['important_field']": "critical_value"
+            }
+        }
+        schema = {
+            "200": [
+                {"path": "important_field", "type": "string", "required": True, "deprecated": False}
+            ]
+        }
+        severity, reasons = classify_severity(diff, schema, 200, 200)
+        assert severity == "breaking"
+        assert len(reasons) == 1
+        assert reasons[0]["severity"] == "breaking"
+        assert "deprecated" not in reasons[0]["detail"]
+
+    def test_non_deprecated_optional_removal_stays_structural(self):
+        """Removing a non-deprecated optional field is still structural."""
+        diff = {
+            "dictionary_item_removed": {
+                "root['body']['optional_field']": "some_value"
+            }
+        }
+        schema = {
+            "200": [
+                {"path": "optional_field", "type": "string", "required": False, "deprecated": False}
+            ]
+        }
+        severity, reasons = classify_severity(diff, schema, 200, 200)
+        assert severity == "structural"
+        assert len(reasons) == 1
+        assert reasons[0]["severity"] == "structural"
+        assert "deprecated" not in reasons[0]["detail"]
+
+    def test_deprecated_value_change_is_cosmetic(self):
+        """Value change on any field (deprecated or not) is cosmetic."""
+        diff = {
+            "values_changed": {
+                "root['body']['deprecated_field']": {
+                    "old_value": "old",
+                    "new_value": "new"
+                }
+            }
+        }
+        schema = {
+            "200": [
+                {"path": "deprecated_field", "type": "string", "required": True, "deprecated": True}
+            ]
+        }
+        severity, reasons = classify_severity(diff, schema, 200, 200)
+        assert severity == "cosmetic"
+        assert len(reasons) == 1
+        assert reasons[0]["category"] == "value_changed"
+        assert reasons[0]["severity"] == "cosmetic"
+
+    def test_multiple_fields_with_mixed_deprecation(self):
+        """Multiple removals: deprecated and non-deprecated fields together."""
+        diff = {
+            "dictionary_item_removed": {
+                "root['body']['deprecated_req']": "val1",
+                "root['body']['active_req']": "val2",
+            }
+        }
+        schema = {
+            "200": [
+                {"path": "deprecated_req", "type": "string", "required": True, "deprecated": True},
+                {"path": "active_req", "type": "string", "required": True, "deprecated": False},
+            ]
+        }
+        severity, reasons = classify_severity(diff, schema, 200, 200)
+        # active_req removal is breaking, which dominates
+        assert severity == "breaking"
+        assert len(reasons) == 2
+        # Find each reason and verify
+        deprecated_reason = next(r for r in reasons if r["path"] == "deprecated_req")
+        active_reason = next(r for r in reasons if r["path"] == "active_req")
+        assert deprecated_reason["severity"] == "structural"  # downgraded
+        assert active_reason["severity"] == "breaking"  # not downgraded
+
+    def test_no_schema_means_no_deprecation_info(self):
+        """Without schema, removed fields are structural (no required/deprecated info)."""
+        diff = {
+            "dictionary_item_removed": {
+                "root['body']['unknown_field']": "value"
+            }
+        }
+        severity, reasons = classify_severity(diff, None, 200, 200)
+        assert severity == "structural"
+        assert reasons[0]["severity"] == "structural"
+        assert "deprecated" not in reasons[0]["detail"]
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# do_compare integration tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+from unittest.mock import patch, MagicMock
+from dd.compare import do_compare, CompareRequest, ResponseSchemaField
+
+
+class TestDoCompare:
+    """Integration tests for do_compare() with mocked HTTP."""
+
+    def _mock_hit(self, status: int, body: dict):
+        """Create a mock response dict matching hit() return format."""
+        return {
+            "status": status,
+            "body": body,
+            "headers": {"Content-Type": "application/json"},
+            "timing": {"elapsed_ms": 42},
+        }
+
+    def test_basic_compare_no_drift(self):
+        """Identical responses should produce has_drift=False."""
+        response = self._mock_hit(200, {"status": "ok", "value": 123})
+
+        with patch("dd.compare.hit", return_value=response):
+            cr = CompareRequest(label="test", method="GET", path="/api/status")
+            result = do_compare("http://a", "http://b", cr, None)
+
+        assert result["has_drift"] is False
+        assert result["diff"] == {}
+        assert result["severity"] == "none"
+        assert result["label"] == "test"
+        assert result["method"] == "GET"
+        assert result["path"] == "/api/status"
+
+    def test_basic_compare_with_drift(self):
+        """Different responses should produce has_drift=True with diff."""
+        resp_a = self._mock_hit(200, {"status": "ok", "value": 100})
+        resp_b = self._mock_hit(200, {"status": "ok", "value": 200})
+
+        with patch("dd.compare.hit") as mock_hit:
+            mock_hit.side_effect = [resp_a, resp_b]
+            cr = CompareRequest(label="test", method="GET", path="/api/data")
+            result = do_compare("http://a", "http://b", cr, None)
+
+        assert result["has_drift"] is True
+        assert "values_changed" in result["diff"]
+        assert result["severity"] == "cosmetic"
+
+    def test_status_code_change_is_breaking(self):
+        """Status code mismatch should be classified as breaking."""
+        resp_a = self._mock_hit(200, {"status": "ok"})
+        resp_b = self._mock_hit(500, {"error": "Internal Server Error"})
+
+        with patch("dd.compare.hit") as mock_hit:
+            mock_hit.side_effect = [resp_a, resp_b]
+            cr = CompareRequest(label="test", method="GET", path="/api/test")
+            result = do_compare("http://a", "http://b", cr, None)
+
+        assert result["has_drift"] is True
+        assert result["severity"] == "breaking"
+        assert any(r["category"] == "status_change" for r in result["severity_reasons"])
+
+    def test_compare_with_schema_conformance(self):
+        """Schema fields should trigger conformance validation."""
+        resp_a = self._mock_hit(200, {"custid": "cust123", "name": "Alice"})
+        resp_b = self._mock_hit(200, {"custid": "cust123", "name": "Alice"})
+
+        schema = {
+            "200": [
+                ResponseSchemaField(
+                    name="custid", path="custid", type="string", required=True
+                ),
+                ResponseSchemaField(
+                    name="name", path="name", type="string", required=False
+                ),
+            ]
+        }
+
+        with patch("dd.compare.hit") as mock_hit:
+            mock_hit.side_effect = [resp_a, resp_b]
+            cr = CompareRequest(
+                label="test", method="GET", path="/api/user",
+                response_schema=schema
+            )
+            result = do_compare("http://a", "http://b", cr, None)
+
+        assert "conformance" in result
+        assert "a" in result["conformance"]
+        assert "b" in result["conformance"]
+        # Both should conform
+        for field_result in result["conformance"]["a"]:
+            assert field_result["conforms"] is True
+
+    def test_compare_with_extra_ignore_paths(self):
+        """extra_ignore_paths should suppress diff on specified fields."""
+        resp_a = self._mock_hit(200, {"timestamp": "2024-01-01", "data": "same"})
+        resp_b = self._mock_hit(200, {"timestamp": "2024-01-02", "data": "same"})
+
+        with patch("dd.compare.hit") as mock_hit:
+            mock_hit.side_effect = [resp_a, resp_b]
+            cr = CompareRequest(
+                label="test", method="GET", path="/api/time",
+                extra_ignore_paths=["root['body']['timestamp']"]
+            )
+            result = do_compare("http://a", "http://b", cr, None)
+
+        # timestamp diff should be ignored
+        assert result["has_drift"] is False
+
+    def test_severity_passthrough_in_result(self):
+        """Severity and reasons should be included in result."""
+        resp_a = self._mock_hit(200, {"field": "old"})
+        resp_b = self._mock_hit(200, {"field": "new"})
+
+        with patch("dd.compare.hit") as mock_hit:
+            mock_hit.side_effect = [resp_a, resp_b]
+            cr = CompareRequest(label="test", method="POST", path="/api/update")
+            result = do_compare("http://a", "http://b", cr, None)
+
+        assert "severity" in result
+        assert "severity_reasons" in result
+        assert isinstance(result["severity_reasons"], list)
+
+    def test_drift_ignore_fields_excluded_from_diff(self):
+        """Fields marked drift_ignore in schema should be excluded."""
+        resp_a = self._mock_hit(200, {"nonce": "abc123", "data": "same"})
+        resp_b = self._mock_hit(200, {"nonce": "xyz789", "data": "same"})
+
+        schema = {
+            "200": [
+                ResponseSchemaField(
+                    name="nonce", path="nonce", type="string", drift_ignore=True
+                ),
+                ResponseSchemaField(
+                    name="data", path="data", type="string"
+                ),
+            ]
+        }
+
+        with patch("dd.compare.hit") as mock_hit:
+            mock_hit.side_effect = [resp_a, resp_b]
+            cr = CompareRequest(
+                label="test", method="GET", path="/api/nonce",
+                response_schema=schema
+            )
+            result = do_compare("http://a", "http://b", cr, None)
+
+        # nonce diff should be ignored due to drift_ignore
+        assert result["has_drift"] is False
+
+    def test_global_ignore_paths_applied(self):
+        """Global ignore paths should be merged with request-level ignores."""
+        resp_a = self._mock_hit(200, {"global_field": "a", "data": "same"})
+        resp_b = self._mock_hit(200, {"global_field": "b", "data": "same"})
+
+        with patch("dd.compare.hit") as mock_hit:
+            mock_hit.side_effect = [resp_a, resp_b]
+            cr = CompareRequest(label="test", method="GET", path="/api/global")
+            global_ignore = ["root['body']['global_field']"]
+            result = do_compare("http://a", "http://b", cr, global_ignore)
+
+        assert result["has_drift"] is False
+        assert "root['body']['global_field']" in result["ignored_paths"]
+
+    def test_captured_at_timestamp_present(self):
+        """Result should include an ISO timestamp in captured_at."""
+        response = self._mock_hit(200, {"ok": True})
+
+        with patch("dd.compare.hit", return_value=response):
+            cr = CompareRequest(label="test", method="GET", path="/api/time")
+            result = do_compare("http://a", "http://b", cr, None)
+
+        assert "captured_at" in result
+        # Should be ISO format
+        assert "T" in result["captured_at"]
+
+    def test_response_a_and_b_included(self):
+        """Raw responses should be included for debugging."""
+        resp_a = self._mock_hit(200, {"a": 1})
+        resp_b = self._mock_hit(200, {"b": 2})
+
+        with patch("dd.compare.hit") as mock_hit:
+            mock_hit.side_effect = [resp_a, resp_b]
+            cr = CompareRequest(label="test", method="GET", path="/api/debug")
+            result = do_compare("http://a", "http://b", cr, None)
+
+        assert result["response_a"] == resp_a
+        assert result["response_b"] == resp_b

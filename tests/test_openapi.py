@@ -333,6 +333,36 @@ class TestExtractFields:
         fields = extract_fields(schema, {}, prefix="parent")
         assert fields[0]["path"] == "parent.x"
 
+    def test_deprecated_field_flagged(self):
+        """Fields marked deprecated: true should have deprecated=True in output."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "old_api_key": {
+                    "type": "string",
+                    "deprecated": True,
+                    "description": "Use new_api_key instead",
+                },
+            },
+        }
+        fields = extract_fields(schema, {})
+        assert len(fields) == 1
+        assert fields[0]["deprecated"] is True
+
+    def test_non_deprecated_field(self):
+        """Fields without deprecated flag should default to deprecated=False."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "current_field": {"type": "string"},
+                "explicitly_not_deprecated": {"type": "string", "deprecated": False},
+            },
+        }
+        fields = extract_fields(schema, {})
+        by_name = {f["name"]: f for f in fields}
+        assert by_name["current_field"]["deprecated"] is False
+        assert by_name["explicitly_not_deprecated"]["deprecated"] is False
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 3. extract_example_body

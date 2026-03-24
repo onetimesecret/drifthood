@@ -148,6 +148,7 @@ def extract_fields(schema: dict, spec: dict, prefix: str = "") -> list[dict]:
             "description": prop.get("description", ""),
             "format": fmt,
             "drift_ignore": drift_ignore,
+            "deprecated": prop.get("deprecated", False),
         }
         if ftype in ("integer", "number"):
             if "minimum" in prop:

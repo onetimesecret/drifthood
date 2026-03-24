@@ -157,6 +157,17 @@ def init_db():
     """)
 
     # ── Testruns table ──
+    # DESIGN NOTE: Share link security
+    # Current model relies on UUIDv7 obscurity for share links (/t/{extid}).
+    # Future enhancements to consider:
+    #   1. is_public BOOLEAN column - explicit opt-in for sharing, default False.
+    #      Share endpoint would check: WHERE extid = ? AND is_public = 1
+    #   2. Separate share_token column - generate a shorter, scoped token for
+    #      sharing that can be revoked independently of the extid.
+    #   3. share_expires_at column - time-limited share links that auto-expire.
+    #   4. share_view_count / max_views - limit number of views before expiry.
+    # For now, UUIDv7 provides ~122 bits of entropy which is sufficient for
+    # this internal testing tool where the threat model is casual link guessing.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS testruns (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -621,6 +632,105 @@ def get_testrun_by_number(document_id: int, testrun_number: int) -> dict | None:
 def get_testrun_by_extid(extid: str) -> dict | None:
     conn = _connect()
     cur = conn.execute("SELECT * FROM testruns WHERE extid = ?", (extid,))
+    d = _fetchone_dict(cur)
+    conn.close()
+    if not d:
+        return None
+    d["state"] = json.loads(d.pop("state_json"))
+    return d
+
+
+def _normalize_path(path: str) -> str:
+    """Normalize path parameters to canonical form for endpoint identity.
+
+    Handles:
+    - OpenAPI-style templates: /users/{id} -> /users/{param}
+    - Literal numeric segments: /users/123 -> /users/{param}
+    - UUIDs: /users/550e8400-e29b-41d4-a716-446655440000 -> /users/{param}
+
+    This ensures /users/1 and /users/2 are treated as the same endpoint.
+    """
+    import re
+    segments = path.split("/")
+    normalized = []
+    # UUID pattern (8-4-4-4-12 hex)
+    uuid_re = re.compile(r"^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$")
+    for seg in segments:
+        if not seg:
+            normalized.append(seg)
+        elif seg.startswith("{") and seg.endswith("}"):
+            # Already a template param, normalize to {param}
+            normalized.append("{param}")
+        elif seg.isdigit():
+            # Numeric ID
+            normalized.append("{param}")
+        elif uuid_re.match(seg):
+            # UUID
+            normalized.append("{param}")
+        else:
+            normalized.append(seg)
+    return "/".join(normalized)
+
+
+def diff_testruns(run_a: dict, run_b: dict) -> dict:
+    """Compute endpoint-level delta between two testruns.
+
+    Pure function: does not access the database.
+
+    Returns dict with:
+        added: list of endpoints in B but not A (keyed by METHOD:path)
+        removed: list of endpoints in A but not B
+        changed: list of endpoints present in both but with different state
+        unchanged: list of endpoints present in both with same state
+    """
+    def _endpoint_key(ep: dict) -> str:
+        path = ep.get("path", "")
+        normalized = _normalize_path(path)
+        return f"{ep.get('method', 'GET')}:{normalized}"
+
+    endpoints_a = run_a.get("state", {}).get("endpoints", [])
+    endpoints_b = run_b.get("state", {}).get("endpoints", [])
+
+    # Build lookup dicts keyed by METHOD:path
+    a_by_key = {_endpoint_key(ep): ep for ep in endpoints_a}
+    b_by_key = {_endpoint_key(ep): ep for ep in endpoints_b}
+
+    keys_a = set(a_by_key.keys())
+    keys_b = set(b_by_key.keys())
+
+    added = [b_by_key[k] for k in (keys_b - keys_a)]
+    removed = [a_by_key[k] for k in (keys_a - keys_b)]
+    changed = []
+    unchanged = []
+
+    for k in keys_a & keys_b:
+        ep_a = a_by_key[k]
+        ep_b = b_by_key[k]
+        # Compare state field (done-drift, done-ok, idle, etc.)
+        if ep_a.get("state") != ep_b.get("state"):
+            changed.append({"key": k, "a": ep_a, "b": ep_b})
+        else:
+            unchanged.append({"key": k, "a": ep_a, "b": ep_b})
+
+    return {
+        "added": added,
+        "removed": removed,
+        "changed": changed,
+        "unchanged": unchanged,
+    }
+
+
+def get_active_testrun_by_extid(extid: str) -> dict | None:
+    """Get a testrun by extid, excluding soft-deleted testruns.
+
+    Use this for public-facing routes (e.g., share links) where deleted
+    testruns should return 404. The plain get_testrun_by_extid() does NOT
+    filter deleted_at and should only be used for admin/audit purposes.
+    """
+    conn = _connect()
+    cur = conn.execute(
+        "SELECT * FROM testruns WHERE extid = ? AND deleted_at IS NULL", (extid,)
+    )
     d = _fetchone_dict(cur)
     conn.close()
     if not d:
