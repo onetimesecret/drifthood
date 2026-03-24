@@ -1,5 +1,5 @@
 <script>
-  import { parseDiff, jsonSummary } from '../../lib/diff.js';
+  import { parseDiff, jsonSummary, SEVERITY_LEVELS } from '../../lib/diff.js';
   import { prettifyPath } from '../../lib/format.js';
   import { buildDriftSummary, buildCurlCommand } from '../../lib/export.js';
   import { session, getEnvA, getEnvB } from '../stores/session.svelte.js';
@@ -7,6 +7,10 @@
   let { result, endpointId } = $props();
 
   let sections = $derived(result?.has_drift ? parseDiff(result.diff) : []);
+
+  let severityInfo = $derived(
+    result?.severity ? SEVERITY_LEVELS[result.severity] : SEVERITY_LEVELS.none
+  );
 
   // Only show ignored-fields badge when both sides returned real responses
   // (not connection errors). Showing "6 fields ignored" on a connection
@@ -72,6 +76,19 @@
     {/if}
   </div>
 {:else}
+  <!-- Severity badge -->
+  {#if result?.severity && result.severity !== 'none'}
+    <div class="mb-2">
+      <span class="text-[0.75em] font-medium px-2 py-0.5 rounded {severityInfo.bgClass} {severityInfo.textClass} border border-current/30">
+        {severityInfo.label}
+      </span>
+      {#if result.severity_reasons?.length > 0}
+        <span class="text-[0.7em] text-text-dim ml-2">
+          {result.severity_reasons.length} issue{result.severity_reasons.length === 1 ? '' : 's'}
+        </span>
+      {/if}
+    </div>
+  {/if}
   {#each sections as sec, secIdx}
     <div class="mb-3">
       <h4 class="text-[0.8em] text-text-dim uppercase tracking-wider mb-1.5">

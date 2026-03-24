@@ -190,6 +190,158 @@ def _get_nested(body: dict, dotted_path: str):
     return True, node
 
 
+# ---------------------------------------------------------------------------
+# Severity classification
+# ---------------------------------------------------------------------------
+def _extract_field_path(deepdiff_path: str) -> str:
+    """
+    Convert DeepDiff path like "root['body']['user']['id']" to dotted path "user.id".
+    Strips the root['body'] prefix since schema paths are relative to body.
+    """
+    import re
+    matches = re.findall(r"\['([^']+)'\]", deepdiff_path)
+    if len(matches) > 1 and matches[0] == "body":
+        return ".".join(matches[1:])
+    return ".".join(matches) if matches else deepdiff_path
+
+
+def _severity_order(severity: str) -> int:
+    """Return numeric order for severity comparison."""
+    return {"none": 0, "cosmetic": 1, "structural": 2, "breaking": 3}.get(severity, 0)
+
+
+def classify_severity(
+    diff: dict,
+    response_schema: dict | None,
+    status_a: int | None,
+    status_b: int | None,
+) -> tuple[str, list[dict]]:
+    """
+    Classify drift severity and return (severity, reasons).
+
+    Severity levels (lowest to highest):
+    - "none": no drift detected
+    - "cosmetic": value changes in existing fields
+    - "structural": fields added/removed (optional), array changes
+    - "breaking": status change, required field missing, type mismatch on required
+
+    Args:
+        diff: DeepDiff result dict
+        response_schema: dict mapping status codes to lists of field dicts with 'path', 'required', etc.
+        status_a: HTTP status from host A (may be None on connection error)
+        status_b: HTTP status from host B (may be None on connection error)
+
+    Returns:
+        (severity, reasons) where each reason is {category, path, detail, severity}
+    """
+    if not diff and status_a == status_b:
+        return ("none", [])
+
+    reasons = []
+    max_severity = "cosmetic" if diff else "none"
+
+    def upgrade(new_sev):
+        nonlocal max_severity
+        if _severity_order(new_sev) > _severity_order(max_severity):
+            max_severity = new_sev
+
+    # Build required-field lookup from schema
+    required_fields: set[str] = set()
+    if response_schema:
+        # response_schema is keyed by status code string
+        for status_str, fields in response_schema.items():
+            for f in fields:
+                fd = f.model_dump() if hasattr(f, "model_dump") else f
+                if fd.get("required"):
+                    required_fields.add(fd["path"])
+
+    # Status code change = breaking (includes None from connection errors)
+    if status_a != status_b:
+        reasons.append({
+            "category": "status_change",
+            "path": "status",
+            "detail": f"{status_a} → {status_b}",
+            "severity": "breaking",
+        })
+        upgrade("breaking")
+
+    # Type changes
+    for path, change in diff.get("type_changes", {}).items():
+        field_path = _extract_field_path(path)
+        is_required = field_path in required_fields
+        sev = "breaking" if is_required else "structural"
+        reasons.append({
+            "category": "type_change",
+            "path": field_path,
+            "detail": f"{change.get('old_type', '?')} → {change.get('new_type', '?')}",
+            "severity": sev,
+        })
+        upgrade(sev)
+
+    # Removed fields (in A but not B)
+    for path, value in diff.get("dictionary_item_removed", {}).items():
+        field_path = _extract_field_path(path)
+        is_required = field_path in required_fields
+        sev = "breaking" if is_required else "structural"
+        reasons.append({
+            "category": "field_removed",
+            "path": field_path,
+            "detail": "missing in B",
+            "severity": sev,
+        })
+        upgrade(sev)
+
+    # Added fields (in B but not A) = structural (additive, backward-compatible)
+    for path, value in diff.get("dictionary_item_added", {}).items():
+        field_path = _extract_field_path(path)
+        reasons.append({
+            "category": "field_added",
+            "path": field_path,
+            "detail": "new in B",
+            "severity": "structural",
+        })
+        upgrade("structural")
+
+    # Value changes = cosmetic (unless status, handled above)
+    for path, change in diff.get("values_changed", {}).items():
+        if "['status']" in path:
+            continue  # Already handled as status_change
+        field_path = _extract_field_path(path)
+        reasons.append({
+            "category": "value_changed",
+            "path": field_path,
+            "detail": "value differs",
+            "severity": "cosmetic",
+        })
+        # Don't upgrade — cosmetic is baseline
+
+    # Array item changes
+    for path, value in diff.get("iterable_item_added", {}).items():
+        field_path = _extract_field_path(path)
+        reasons.append({
+            "category": "array_item_added",
+            "path": field_path,
+            "detail": "item added in B",
+            "severity": "structural",
+        })
+        upgrade("structural")
+
+    for path, value in diff.get("iterable_item_removed", {}).items():
+        field_path = _extract_field_path(path)
+        reasons.append({
+            "category": "array_item_removed",
+            "path": field_path,
+            "detail": "item missing in B",
+            "severity": "structural",
+        })
+        upgrade("structural")
+
+    return (max_severity, reasons)
+
+
+# ---------------------------------------------------------------------------
+# Response validation
+# ---------------------------------------------------------------------------
 def validate_response_against_schema(
     response: dict, schema_fields: Sequence[dict]
 ) -> list[dict]:
@@ -271,13 +423,33 @@ def do_compare(
         comparable_a, comparable_b, ignore_order=True, exclude_paths=ignore
     )
 
+    diff_dict = json.loads(diff.to_json()) if diff else {}
+
+    # Build schema dict for severity classification
+    schema_for_severity = None
+    if cr.response_schema:
+        schema_for_severity = {
+            k: [f.model_dump() if hasattr(f, "model_dump") else f for f in v]
+            for k, v in cr.response_schema.items()
+        }
+
+    # Classify severity
+    severity, severity_reasons = classify_severity(
+        diff=diff_dict,
+        response_schema=schema_for_severity,
+        status_a=a["status"],
+        status_b=b["status"],
+    )
+
     result = {
         "label": cr.label,
         "method": cr.method,
         "path": cr.path,
         "group": cr.group,
         "has_drift": bool(diff),
-        "diff": json.loads(diff.to_json()) if diff else {},
+        "diff": diff_dict,
+        "severity": severity,
+        "severity_reasons": severity_reasons,
         "ignored_paths": ignore,
         "response_a": a,
         "response_b": b,
