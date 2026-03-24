@@ -19,7 +19,7 @@ DB_DRIVER = os.environ.get("DD_DB_DRIVER", "sqlite")
 DB_PATH = os.environ.get(
     "DD_DB_PATH",
     os.path.join(
-        os.path.dirname(os.path.dirname(__file__)) or ".", "drift-detector.db"
+        os.path.dirname(os.path.dirname(__file__)) or ".", "data", "drift-detector.db"
     ),
 )
 # Turso auth token (only used when DB_DRIVER=turso)

@@ -1,3 +1,6 @@
+# Data directory (DB files)
+data/
+
 __pycache__/
 *.pyc
 *.db
@@ -30,6 +33,7 @@ Thumbs.db
 *.bak
 *.swp
 *.txt
+!requirements.txt
 *~
 
 # IDEs and Editors
@@ -112,7 +116,8 @@ coverage.xml
 
 # Ruby Environments / Bundler
 .bundle/
-bin/
+bin/*
+!bin/dev
 binstubs/
 vendor/bundle/
 lib/bundler/man/
