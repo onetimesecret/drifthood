@@ -195,19 +195,25 @@ async def diff_testruns_route(doc_extid: str, a: str, b: str, request: Request):
 async def get_shared_testrun(testrun_extid: str):
     """Get a testrun for public sharing (no auth required).
 
-    CRITICAL: Uses get_active_testrun_by_extid which filters deleted_at.
-    Deleted testruns MUST return 404 to prevent information disclosure.
+    SECURITY: Uses get_public_testrun_by_extid which checks:
+      1. extid exists
+      2. deleted_at IS NULL (not soft-deleted)
+      3. is_public = TRUE (owner explicitly opted in to sharing)
+
+    All failure conditions return identical 404 responses to prevent
+    information leakage about whether a testrun exists or its visibility.
     """
-    # SECURITY: Must use get_active_testrun_by_extid (not get_testrun_by_extid)
-    # to ensure soft-deleted testruns are not accessible via share links.
-    testrun = store.get_active_testrun_by_extid(testrun_extid)
+    # SECURITY: Must use get_public_testrun_by_extid to ensure:
+    # - soft-deleted testruns are not accessible
+    # - private testruns (is_public=false) are not accessible
+    testrun = store.get_public_testrun_by_extid(testrun_extid)
     if not testrun:
         raise HTTPException(status_code=404, detail="Testrun not found")
 
     # Include document metadata for display (title, etc.)
     doc = store.get_document(testrun["document_id"])
     if not doc:
-        raise HTTPException(status_code=404, detail="Document not found")
+        raise HTTPException(status_code=404, detail="Testrun not found")
 
     return {
         "testrun": _ext_testrun(testrun),
@@ -216,3 +222,35 @@ async def get_shared_testrun(testrun_extid: str):
             "title": doc.get("title"),
         },
     }
+
+
+@router.patch("/api/testruns/{testrun_extid}/public")
+async def set_testrun_public(testrun_extid: str, payload: dict, request: Request):
+    """Toggle a testrun's public visibility (requires auth).
+
+    Payload: {isPublic: bool}
+
+    The owner must authenticate to change visibility. This ensures that
+    only the session that created the testrun can make it public.
+
+    NOTE: The frontend share button in App.svelte should call this with
+    isPublic=true before copying the share link to the clipboard.
+    """
+    session_hash = get_session_hash(request)
+
+    # Look up the testrun (must exist and not be deleted)
+    testrun = store.get_active_testrun_by_extid(testrun_extid)
+    if not testrun:
+        raise HTTPException(status_code=404, detail="Testrun not found")
+
+    # Verify ownership: testrun's document must belong to this session
+    doc = store.get_document(testrun["document_id"])
+    if not doc or doc.get("session_hash") != session_hash:
+        raise HTTPException(status_code=404, detail="Testrun not found")
+
+    is_public = payload.get("isPublic", False)
+    ok = store.set_testrun_public(testrun_extid, is_public)
+    if not ok:
+        raise HTTPException(status_code=404, detail="Testrun not found")
+
+    return {"ok": True, "isPublic": is_public}

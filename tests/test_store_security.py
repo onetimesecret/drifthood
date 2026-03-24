@@ -165,7 +165,7 @@ class TestShareEndpointSecurity:
         assert "not found" in response.json().get("detail", "").lower()
 
     def test_share_endpoint_returns_active_testrun(self, store, document):
-        """The share endpoint returns active testruns normally."""
+        """The share endpoint returns active, public testruns normally."""
         from fastapi.testclient import TestClient
 
         import dd.app as app_module
@@ -180,6 +180,9 @@ class TestShareEndpointSecurity:
             state,
             testrun_type="save",
         )
+
+        # Make the testrun public (required for share endpoint)
+        store.set_testrun_public(testrun["extid"], True)
 
         # Access via share endpoint
         response = client.get(f"/api/share/{testrun['extid']}")

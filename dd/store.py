@@ -157,17 +157,22 @@ def init_db():
     """)
 
     # ── Testruns table ──
-    # DESIGN NOTE: Share link security
-    # Current model relies on UUIDv7 obscurity for share links (/t/{extid}).
+    # SECURITY NOTE: Share link visibility
+    #
+    # The is_public flag provides explicit opt-in for sharing. Without it set,
+    # the share endpoint returns 404 (same as non-existent or deleted).
+    #
+    # UUIDv7 LIMITATION: While UUIDv7 has ~122 bits total, security is weaker
+    # than that suggests. The first 48 bits are a millisecond timestamp, leaving
+    # only ~74 bits of randomness. An attacker who knows approximately when
+    # testruns were created (e.g., within a day) can narrow the search space
+    # significantly. The is_public flag provides defense-in-depth: even if an
+    # attacker guesses a valid extid, they only see data the owner chose to share.
+    #
     # Future enhancements to consider:
-    #   1. is_public BOOLEAN column - explicit opt-in for sharing, default False.
-    #      Share endpoint would check: WHERE extid = ? AND is_public = 1
-    #   2. Separate share_token column - generate a shorter, scoped token for
-    #      sharing that can be revoked independently of the extid.
-    #   3. share_expires_at column - time-limited share links that auto-expire.
-    #   4. share_view_count / max_views - limit number of views before expiry.
-    # For now, UUIDv7 provides ~122 bits of entropy which is sufficient for
-    # this internal testing tool where the threat model is casual link guessing.
+    #   - share_token column: shorter, revocable token for sharing
+    #   - share_expires_at: time-limited share links
+    #   - share_view_count / max_views: limit views before expiry
     conn.execute("""
         CREATE TABLE IF NOT EXISTS testruns (
             id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -178,6 +183,7 @@ def init_db():
             endpoint_count  INTEGER NOT NULL DEFAULT 0,
             drift_count     INTEGER NOT NULL DEFAULT 0,
             ok_count        INTEGER NOT NULL DEFAULT 0,
+            is_public       BOOLEAN NOT NULL DEFAULT 0,
             state_json      TEXT NOT NULL,
             state_hash      TEXT,
             created_at      TEXT NOT NULL,
@@ -246,6 +252,10 @@ def init_db():
         migrations.append("ALTER TABLE testruns ADD COLUMN deleted_at TEXT")
     if "extid" not in columns:
         migrations.append("ALTER TABLE testruns ADD COLUMN extid TEXT UNIQUE")
+    if "is_public" not in columns:
+        migrations.append(
+            "ALTER TABLE testruns ADD COLUMN is_public BOOLEAN NOT NULL DEFAULT 0"
+        )
     for sql in migrations:
         conn.execute(sql)
     if migrations:
@@ -737,6 +747,51 @@ def get_active_testrun_by_extid(extid: str) -> dict | None:
         return None
     d["state"] = json.loads(d.pop("state_json"))
     return d
+
+
+def get_public_testrun_by_extid(extid: str) -> dict | None:
+    """Get a testrun by extid, only if it's public and not deleted.
+
+    Use this for the share endpoint. Returns None (which routes translate
+    to 404) if:
+      - testrun doesn't exist
+      - testrun is soft-deleted (deleted_at IS NOT NULL)
+      - testrun is private (is_public = FALSE)
+
+    SECURITY: All three conditions produce identical 404 responses to prevent
+    information leakage about whether a given extid exists or its visibility state.
+    """
+    conn = _connect()
+    cur = conn.execute(
+        "SELECT * FROM testruns WHERE extid = ? AND deleted_at IS NULL AND is_public = 1",
+        (extid,),
+    )
+    d = _fetchone_dict(cur)
+    conn.close()
+    if not d:
+        return None
+    d["state"] = json.loads(d.pop("state_json"))
+    return d
+
+
+def set_testrun_public(extid: str, is_public: bool) -> bool:
+    """Toggle the is_public flag on a testrun.
+
+    Returns True if the testrun was found and updated, False otherwise.
+    Only operates on non-deleted testruns.
+
+    NOTE: The frontend share button should call this endpoint to set
+    is_public=True before copying the share link. See App.svelte.
+    """
+    conn = _connect()
+    cur = conn.execute(
+        "UPDATE testruns SET is_public = ?, updated_at = ? WHERE extid = ? AND deleted_at IS NULL",
+        (1 if is_public else 0, _now(), extid),
+    )
+    conn.commit()
+    affected = cur.rowcount
+    conn.close()
+    return affected > 0
 
 
 def get_latest_testrun(document_id: int) -> dict | None:

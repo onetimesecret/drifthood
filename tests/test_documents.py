@@ -95,10 +95,13 @@ class TestShareEndpointSecurity:
     CRITICAL: These tests verify that deleted testruns cannot be accessed
     via the share endpoint. This prevents information disclosure when a
     user deletes a testrun expecting it to become inaccessible.
+
+    NOTE: Testruns must have is_public=true to be accessible via the share
+    endpoint. See test_share.py for comprehensive is_public tests.
     """
 
     def test_active_testrun_returns_200_with_data(self, client, store, sample_testrun_state, clean_db):
-        """An active (non-deleted) testrun should be accessible via share endpoint."""
+        """An active (non-deleted), public testrun should be accessible via share endpoint."""
         # Create a document and testrun directly in the database
         result = store.save(
             sample_testrun_state,
@@ -107,6 +110,9 @@ class TestShareEndpointSecurity:
             session_hash="test_session_hash",
         )
         testrun_extid = result["testrun"]["extid"]
+
+        # Make the testrun public (required for share endpoint)
+        store.set_testrun_public(testrun_extid, True)
 
         # Access via share endpoint
         response = client.get(f"/api/share/{testrun_extid}")
@@ -130,6 +136,9 @@ class TestShareEndpointSecurity:
             session_hash="test_session_hash",
         )
         testrun_extid = result["testrun"]["extid"]
+
+        # Make it public first
+        store.set_testrun_public(testrun_extid, True)
 
         # Soft-delete the testrun
         deleted = store.soft_delete_testrun_by_extid(testrun_extid)
@@ -165,6 +174,9 @@ class TestShareEndpointSecurity:
         testrun_extid = result["testrun"]["extid"]
         doc_extid = result["document"]["extid"]
 
+        # Make the testrun public (required for share endpoint)
+        store.set_testrun_public(testrun_extid, True)
+
         # Update document title
         store.update_document_title(result["document"]["id"], "Test Document Title")
 
@@ -183,6 +195,9 @@ class TestShareEndpointSecurity:
             session_hash="test_session_hash",
         )
         testrun_extid = result["testrun"]["extid"]
+
+        # Make the testrun public (required for share endpoint)
+        store.set_testrun_public(testrun_extid, True)
 
         response = client.get(f"/api/share/{testrun_extid}")
         assert response.status_code == 200
@@ -212,6 +227,9 @@ class TestShareEndpointSecurity:
         )
         testrun_extid = result["testrun"]["extid"]
 
+        # Make the testrun public (required for share endpoint)
+        store.set_testrun_public(testrun_extid, True)
+
         response = client.get(f"/api/share/{testrun_extid}")
         assert response.status_code == 200
         data = response.json()
@@ -233,6 +251,9 @@ class TestShareEndpointSecurity:
         )
         testrun_extid = result["testrun"]["extid"]
 
+        # Make the testrun public (required for share endpoint)
+        store.set_testrun_public(testrun_extid, True)
+
         response = client.get(f"/api/share/{testrun_extid}")
         assert response.status_code == 200
         data = response.json()
@@ -251,6 +272,9 @@ class TestShareEndpointSecurity:
             session_hash="secret_session_hash_value",
         )
         testrun_extid = result["testrun"]["extid"]
+
+        # Make the testrun public (required for share endpoint)
+        store.set_testrun_public(testrun_extid, True)
 
         response = client.get(f"/api/share/{testrun_extid}")
         assert response.status_code == 200
