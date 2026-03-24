@@ -1,4 +1,4 @@
-# drift-detector/tests/test_openapi.py
+# tests/test_openapi.py
 
 """
 Comprehensive tests for dd.openapi: parsing, $ref resolution,

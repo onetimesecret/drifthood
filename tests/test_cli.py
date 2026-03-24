@@ -1,4 +1,4 @@
-# drift-detector/tests/test_cli.py
+# tests/test_cli.py
 
 """
 Tests for dd.cli module: CLI exit codes, output modes, and helper functions.

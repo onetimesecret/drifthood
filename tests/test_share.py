@@ -1,4 +1,4 @@
-# drift-detector/tests/test_share.py
+# tests/test_share.py
 
 """
 Tests for is_public share visibility feature.

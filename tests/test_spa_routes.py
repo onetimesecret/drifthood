@@ -1,4 +1,4 @@
-# drift-detector/tests/test_spa_routes.py
+# tests/test_spa_routes.py
 
 """
 Tests for SPA fallback routes in dd/app.py.

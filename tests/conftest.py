@@ -1,4 +1,4 @@
-# drift-detector/tests/conftest.py
+# tests/conftest.py
 
 """
 Shared fixtures for drift-detector backend tests.

@@ -1,4 +1,4 @@
-# drift-detector/tests/test_documents.py
+# tests/test_documents.py
 
 """
 Tests for dd.documents API routes, with focus on security-critical

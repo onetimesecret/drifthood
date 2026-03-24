@@ -1,4 +1,5 @@
-# drift-detector/tests/test_severity.py
+# tests/test_severity.py
+
 """Tests for severity classification."""
 
 import pytest
