@@ -8,57 +8,63 @@ SECURITY TESTS: The share endpoint (/api/share/{testrun_extid}) must
 return 404 for deleted testruns to prevent information disclosure.
 """
 
-import os
-import tempfile
-from unittest.mock import patch
+import hashlib
 
 import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-# Must patch DD_DB_PATH before importing store
-_fd, _temp_db_path = tempfile.mkstemp(suffix=".db")
-os.close(_fd)
+
+@pytest.fixture(autouse=True)
+def use_temp_db(monkeypatch, tmp_path):
+    """Use a temporary database for each test.
+
+    Uses pytest's tmp_path fixture for proper isolation and cleanup.
+    Patches the config module attributes directly to avoid importlib.reload().
+    """
+    db_path = str(tmp_path / "test_documents.db")
+
+    # Patch config attributes before any store operations
+    monkeypatch.setattr("dd.config.DB_PATH", db_path)
+    monkeypatch.setattr("dd.config.DB_DRIVER", "sqlite")
+
+    # Import store and patch its module-level references
+    import dd.store as store_module
+
+    # Patch the store module's cached config values
+    monkeypatch.setattr(store_module, "DB_PATH", db_path)
+    monkeypatch.setattr(store_module, "DB_DRIVER", "sqlite")
+    monkeypatch.setattr(store_module, "DB_AUTH_TOKEN", None)
+
+    # Initialize the database with fresh tables
+    store_module.init_db()
+
+    yield db_path
+    # tmp_path fixture handles cleanup automatically
 
 
-@pytest.fixture(scope="module", autouse=True)
-def setup_test_db():
-    """Set up temporary database for all tests in this module."""
-    # Patch the config before importing store
-    with patch.dict(os.environ, {"DD_DB_PATH": _temp_db_path}):
-        # Import fresh with patched env
-        import importlib
-        import dd.config
-        import dd.store
-
-        importlib.reload(dd.config)
-        importlib.reload(dd.store)
-
-        dd.store.init_db()
-        yield
-        # Cleanup happens after all tests
-    os.unlink(_temp_db_path)
-
-
-# Import after patching - need to patch at import time
-os.environ["DD_DB_PATH"] = _temp_db_path
-from dd.documents import router as documents_router
-import dd.store as store
-store.init_db()
+@pytest.fixture
+def store():
+    """Get the store module (after DB patching)."""
+    import dd.store as store_module
+    return store_module
 
 
 @pytest.fixture
 def client():
     """Create a test client with the documents router."""
+    from dd.documents import router as documents_router
     app = FastAPI()
     app.include_router(documents_router)
     return TestClient(app)
 
 
 @pytest.fixture
-def clean_db():
-    """Clean database tables before each test."""
-    # Delete all testruns and documents for isolation
+def clean_db(store):
+    """Clean database tables before each test.
+
+    Tables are guaranteed to exist because use_temp_db runs init_db().
+    """
     conn = store._connect()
     conn.execute("DELETE FROM testruns")
     conn.execute("DELETE FROM documents")
@@ -91,7 +97,7 @@ class TestShareEndpointSecurity:
     user deletes a testrun expecting it to become inaccessible.
     """
 
-    def test_active_testrun_returns_200_with_data(self, client, sample_testrun_state, clean_db):
+    def test_active_testrun_returns_200_with_data(self, client, store, sample_testrun_state, clean_db):
         """An active (non-deleted) testrun should be accessible via share endpoint."""
         # Create a document and testrun directly in the database
         result = store.save(
@@ -110,7 +116,7 @@ class TestShareEndpointSecurity:
         assert "document" in data
         assert data["testrun"]["extid"] == testrun_extid
 
-    def test_deleted_testrun_returns_404(self, client, sample_testrun_state, clean_db):
+    def test_deleted_testrun_returns_404(self, client, store, sample_testrun_state, clean_db):
         """A soft-deleted testrun MUST return 404 via share endpoint.
 
         SECURITY: This is critical to prevent information disclosure.
@@ -148,7 +154,7 @@ class TestShareEndpointSecurity:
         # will return None for invalid format, resulting in 404
         assert response.status_code == 404
 
-    def test_share_endpoint_returns_document_metadata(self, client, sample_testrun_state, clean_db):
+    def test_share_endpoint_returns_document_metadata(self, client, store, sample_testrun_state, clean_db):
         """Share endpoint should include document metadata (title, extid)."""
         result = store.save(
             sample_testrun_state,
@@ -168,7 +174,7 @@ class TestShareEndpointSecurity:
         assert data["document"]["extid"] == doc_extid
         assert data["document"]["title"] == "Test Document Title"
 
-    def test_share_endpoint_excludes_internal_ids(self, client, sample_testrun_state, clean_db):
+    def test_share_endpoint_excludes_internal_ids(self, client, store, sample_testrun_state, clean_db):
         """Share endpoint should NOT expose internal database IDs."""
         result = store.save(
             sample_testrun_state,
@@ -188,7 +194,7 @@ class TestShareEndpointSecurity:
         assert "id" not in data["document"]
         assert "session_hash" not in data["document"]
 
-    def test_encrypted_testrun_indicates_encrypted_blob(self, client, sample_testrun_state, clean_db):
+    def test_encrypted_testrun_indicates_encrypted_blob(self, client, store, sample_testrun_state, clean_db):
         """Share endpoint should return encrypted_blob field when testrun is encrypted.
 
         This allows the frontend to display a notice that the testrun is encrypted
@@ -216,7 +222,7 @@ class TestShareEndpointSecurity:
         assert testrun["encrypted_blob"] == "encrypted_data_here"
         assert "blob_iv" in testrun or "blobIv" in testrun  # camelCase variant
 
-    def test_unencrypted_testrun_has_state_data(self, client, sample_testrun_state, clean_db):
+    def test_unencrypted_testrun_has_state_data(self, client, store, sample_testrun_state, clean_db):
         """Share endpoint returns state data for unencrypted testruns."""
         result = store.save(
             sample_testrun_state,
@@ -236,7 +242,7 @@ class TestShareEndpointSecurity:
         assert "state" in testrun
         assert testrun["state"]["endpoints"][0]["method"] == "GET"
 
-    def test_share_no_sensitive_session_hash_leaked(self, client, sample_testrun_state, clean_db):
+    def test_share_no_sensitive_session_hash_leaked(self, client, store, sample_testrun_state, clean_db):
         """Share endpoint must never leak session_hash (owner identifier)."""
         result = store.save(
             sample_testrun_state,
@@ -278,10 +284,9 @@ class TestDiffRouteSecurity:
     @staticmethod
     def _hash_token(token: str) -> str:
         """Hash a token for storage (matches dd.auth.hash_token)."""
-        import hashlib
         return hashlib.sha256(token.encode()).hexdigest()
 
-    def test_diff_active_testruns_returns_200(self, client, sample_testrun_state, clean_db):
+    def test_diff_active_testruns_returns_200(self, client, store, sample_testrun_state, clean_db):
         """Diffing two active testruns should succeed."""
         # Use a token and derive session_hash from it
         token = "test_token_for_diff_route"
@@ -316,7 +321,7 @@ class TestDiffRouteSecurity:
         assert "testrun_a" in data
         assert "testrun_b" in data
 
-    def test_diff_deleted_testrun_a_returns_404(self, client, sample_testrun_state, clean_db):
+    def test_diff_deleted_testrun_a_returns_404(self, client, store, sample_testrun_state, clean_db):
         """Diffing with a deleted testrun A MUST return 404.
 
         SECURITY: Prevents information disclosure about deleted testruns.
@@ -353,7 +358,7 @@ class TestDiffRouteSecurity:
         assert response.status_code == 404
         assert response.json()["detail"] == "Testrun A not found"
 
-    def test_diff_deleted_testrun_b_returns_404(self, client, sample_testrun_state, clean_db):
+    def test_diff_deleted_testrun_b_returns_404(self, client, store, sample_testrun_state, clean_db):
         """Diffing with a deleted testrun B MUST return 404.
 
         SECURITY: Prevents information disclosure about deleted testruns.
@@ -390,7 +395,7 @@ class TestDiffRouteSecurity:
         assert response.status_code == 404
         assert response.json()["detail"] == "Testrun B not found"
 
-    def test_diff_both_deleted_testruns_returns_404(self, client, sample_testrun_state, clean_db):
+    def test_diff_both_deleted_testruns_returns_404(self, client, store, sample_testrun_state, clean_db):
         """Diffing when both testruns are deleted MUST return 404."""
         token = "test_token_for_diff_both_deleted"
         session_hash = self._hash_token(token)
@@ -439,7 +444,7 @@ class TestDiffRouteSecurity:
         assert response.status_code == 404
         assert response.json()["detail"] == "Document not found"
 
-    def test_diff_testrun_wrong_document_returns_400(self, client, sample_testrun_state, clean_db):
+    def test_diff_testrun_wrong_document_returns_400(self, client, store, sample_testrun_state, clean_db):
         """Testrun belonging to different document returns 400."""
         token = "test_token_for_diff_wrong_doc"
         session_hash = self._hash_token(token)
@@ -470,7 +475,7 @@ class TestDiffRouteSecurity:
         assert response.status_code == 400
         assert "does not belong to this document" in response.json()["detail"]
 
-    def test_diff_wrong_session_returns_404(self, client, sample_testrun_state, clean_db):
+    def test_diff_wrong_session_returns_404(self, client, store, sample_testrun_state, clean_db):
         """Diff with wrong session ownership returns 404 (document not found)."""
         token_owner = "owner_token"
         token_other = "other_token"
@@ -494,7 +499,7 @@ class TestDiffRouteSecurity:
         assert response.status_code == 404
         assert response.json()["detail"] == "Document not found"
 
-    def test_diff_response_contains_complete_data(self, client, clean_db):
+    def test_diff_response_contains_complete_data(self, client, store, clean_db):
         """Successful diff returns complete testrun data and diff results."""
         token = "test_token_complete_data"
         session_hash = self._hash_token(token)
@@ -545,7 +550,7 @@ class TestDiffRouteSecurity:
         assert "extid" in data["testrun_a"]
         assert data["testrun_a"]["extid"] == testrun_a_extid
 
-    def test_diff_same_testrun_twice(self, client, sample_testrun_state, clean_db):
+    def test_diff_same_testrun_twice(self, client, store, sample_testrun_state, clean_db):
         """Diffing same testrun against itself should return no changes."""
         token = "test_token_same_testrun"
         session_hash = self._hash_token(token)
@@ -574,7 +579,7 @@ class TestDiffRouteSecurity:
         # All endpoints should be unchanged
         assert len(diff["unchanged"]) == len(sample_testrun_state["endpoints"])
 
-    def test_diff_no_auth_header_returns_401_or_422(self, client, sample_testrun_state, clean_db):
+    def test_diff_no_auth_header_returns_401_or_422(self, client, store, sample_testrun_state, clean_db):
         """Diff without auth header should fail (401 or 422 depending on auth middleware)."""
         # Create a testrun (doesn't matter for this test)
         result = store.save(

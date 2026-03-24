@@ -146,14 +146,14 @@
                   <div class="mb-2">
                     <h5 class="text-[0.85em] text-text-dim uppercase tracking-wider mb-1">New endpoint in Spec B</h5>
                     {#each r.fields_b || [] as f}
-                      <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-green">&plus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''}{f.deprecated ? ' deprecated' : ''})</span></div>
+                      <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-green">&plus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''})</span>{#if f.deprecated}<span class="ml-1 px-1 py-px rounded text-[0.75em] bg-yellow/10 text-yellow">deprecated</span>{/if}</div>
                     {/each}
                   </div>
                 {:else if r.status === 'removed_from_b'}
                   <div class="mb-2">
                     <h5 class="text-[0.85em] text-text-dim uppercase tracking-wider mb-1">Removed from Spec B</h5>
                     {#each r.fields_a || [] as f}
-                      <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-red">&minus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''}{f.deprecated ? ' deprecated' : ''})</span></div>
+                      <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-red">&minus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''})</span>{#if f.deprecated}<span class="ml-1 px-1 py-px rounded text-[0.75em] bg-yellow/10 text-yellow">deprecated</span>{/if}</div>
                     {/each}
                   </div>
                 {:else if r.diff}
@@ -173,7 +173,7 @@
                     <div class="mb-2">
                       <h5 class="text-[0.85em] text-text-dim uppercase tracking-wider mb-1">Fields Added in B</h5>
                       {#each r.diff.added as f}
-                        <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-green">&plus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''}{f.deprecated ? ' deprecated' : ''})</span></div>
+                        <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-green">&plus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''})</span>{#if f.deprecated}<span class="ml-1 px-1 py-px rounded text-[0.75em] bg-yellow/10 text-yellow">deprecated</span>{/if}</div>
                       {/each}
                     </div>
                   {/if}
@@ -181,7 +181,7 @@
                     <div class="mb-2">
                       <h5 class="text-[0.85em] text-text-dim uppercase tracking-wider mb-1">Fields Removed from B</h5>
                       {#each r.diff.removed as f}
-                        <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-red">&minus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''}{f.deprecated ? ' deprecated' : ''})</span></div>
+                        <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-red">&minus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''})</span>{#if f.deprecated}<span class="ml-1 px-1 py-px rounded text-[0.75em] bg-yellow/10 text-yellow">deprecated</span>{/if}</div>
                       {/each}
                     </div>
                   {/if}
@@ -225,21 +225,21 @@
                             </div>
                             {#if codeDiff.status === 'added_in_b' && codeDiff.fields}
                               {#each codeDiff.fields as f}
-                                <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-green ml-2">&plus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''}{f.deprecated ? ' deprecated' : ''})</span></div>
+                                <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-green ml-2">&plus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''})</span>{#if f.deprecated}<span class="ml-1 px-1 py-px rounded text-[0.75em] bg-yellow/10 text-yellow">deprecated</span>{/if}</div>
                               {/each}
                             {:else if codeDiff.status === 'removed_from_b' && codeDiff.fields}
                               {#each codeDiff.fields as f}
-                                <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-red ml-2">&minus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''}{f.deprecated ? ' deprecated' : ''})</span></div>
+                                <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-red ml-2">&minus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''})</span>{#if f.deprecated}<span class="ml-1 px-1 py-px rounded text-[0.75em] bg-yellow/10 text-yellow">deprecated</span>{/if}</div>
                               {/each}
                             {:else if codeDiff.diff}
                               {#if codeDiff.diff.added?.length}
                                 {#each codeDiff.diff.added as f}
-                                  <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-green ml-2">&plus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''}{f.deprecated ? ' deprecated' : ''})</span></div>
+                                  <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-green ml-2">&plus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''})</span>{#if f.deprecated}<span class="ml-1 px-1 py-px rounded text-[0.75em] bg-yellow/10 text-yellow">deprecated</span>{/if}</div>
                                 {/each}
                               {/if}
                               {#if codeDiff.diff.removed?.length}
                                 {#each codeDiff.diff.removed as f}
-                                  <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-red ml-2">&minus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''}{f.deprecated ? ' deprecated' : ''})</span></div>
+                                  <div class="px-1.5 py-0.5 mb-0.5 rounded-sm bg-bg text-red ml-2">&minus; {f.path} <span class="text-text-dim">({f.type}{f.required ? ' req' : ''})</span>{#if f.deprecated}<span class="ml-1 px-1 py-px rounded text-[0.75em] bg-yellow/10 text-yellow">deprecated</span>{/if}</div>
                                 {/each}
                               {/if}
                               {#if codeDiff.diff.type_changed?.length}

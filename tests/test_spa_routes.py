@@ -13,71 +13,65 @@ for invalid formats. Some routes (like /s/{extid}) additionally validate
 database existence.
 """
 
-import importlib
-import os
-import tempfile
-from unittest.mock import patch
+import hashlib
 
 import pytest
 from fastapi.testclient import TestClient
 
 
-# Must patch DD_DB_PATH before importing store/app
-_fd, _temp_db_path = tempfile.mkstemp(suffix=".db")
-os.close(_fd)
-os.environ["DD_DB_PATH"] = _temp_db_path
+@pytest.fixture(autouse=True)
+def use_temp_db(monkeypatch, tmp_path):
+    """Use a temporary database for each test.
 
-# Reload config and store so they pick up the temp DB path BEFORE importing app
-import dd.config
-import dd.store
+    Uses pytest's tmp_path fixture for proper isolation and cleanup.
+    Patches the config module attributes directly to avoid importlib.reload().
+    """
+    db_path = str(tmp_path / "test_spa_routes.db")
 
-importlib.reload(dd.config)
-importlib.reload(dd.store)
-dd.store.init_db()
+    # Patch config attributes before any store operations
+    monkeypatch.setattr("dd.config.DB_PATH", db_path)
+    monkeypatch.setattr("dd.config.DB_DRIVER", "sqlite")
 
-# Import store reference for tests
-store = dd.store
+    # Import store and patch its module-level references
+    import dd.store as store_module
 
-# Now import create_app - it will use the already-loaded dd.store with correct path
-from dd.app import create_app
+    # Patch the store module's cached config values
+    monkeypatch.setattr(store_module, "DB_PATH", db_path)
+    monkeypatch.setattr(store_module, "DB_DRIVER", "sqlite")
+    monkeypatch.setattr(store_module, "DB_AUTH_TOKEN", None)
+
+    # Initialize the database with fresh tables
+    store_module.init_db()
+
+    yield db_path
+    # tmp_path fixture handles cleanup automatically
 
 
-@pytest.fixture(scope="module", autouse=True)
-def cleanup_test_db():
-    """Clean up temporary database after all tests."""
-    yield
-    os.unlink(_temp_db_path)
+@pytest.fixture
+def store():
+    """Get the store module (after DB patching)."""
+    import dd.store as store_module
+    return store_module
 
 
 @pytest.fixture
 def client():
     """Create a test client with the full app."""
+    from dd.app import create_app
     app = create_app()
     return TestClient(app)
 
 
 @pytest.fixture
-def clean_db():
+def clean_db(store):
     """Clean database tables before each test.
 
-    Handles the case where tables may not exist yet by using
-    DELETE ... WHERE EXISTS pattern or catching errors.
+    Tables are guaranteed to exist because use_temp_db runs init_db().
     """
     conn = store._connect()
-    # Tables are created by init_db() in module setup, but use IF EXISTS
-    # pattern to be defensive against test ordering issues
-    try:
-        conn.execute("DELETE FROM testruns")
-    except Exception:
-        pass  # Table may not exist
-    try:
-        conn.execute("DELETE FROM documents")
-    except Exception:
-        pass
-    try:
-        conn.execute("DELETE FROM sessions")
-    except Exception:
-        pass
+    conn.execute("DELETE FROM testruns")
+    conn.execute("DELETE FROM documents")
+    conn.execute("DELETE FROM sessions")
     conn.commit()
     conn.close()
     yield
@@ -264,10 +258,9 @@ class TestSessionSpaFallback:
         assert response.status_code == 404
         assert response.json()["detail"] == "Not found"
 
-    def test_existing_session_returns_200(self, client, clean_db):
+    def test_existing_session_returns_200(self, client, store, clean_db):
         """An existing session should return 200 with index.html."""
         # Create a session directly in the database
-        import hashlib
         token = "test_token_for_session_spa"
         token_hash = hashlib.sha256(token.encode()).hexdigest()
 

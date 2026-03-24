@@ -9,7 +9,7 @@
    * - Notice when blob is encrypted (cannot decrypt without key)
    */
   import { relativeTime } from '../../lib/format.js';
-  import { SEVERITY_LEVELS } from '../../lib/diff.js';
+  import { apiGetSharedTestrun } from '../../lib/api.js';
 
   let { extid } = $props();
 
@@ -25,30 +25,27 @@
       return;
     }
 
-    fetchSharedTestrun(extid);
+    const controller = new AbortController();
+    fetchSharedTestrun(extid, controller.signal);
+    return () => controller.abort();
   });
 
-  async function fetchSharedTestrun(id) {
+  async function fetchSharedTestrun(id, signal) {
     loading = true;
     error = null;
 
     try {
-      const response = await fetch(`/api/share/${id}`);
-      if (!response.ok) {
-        if (response.status === 404) {
-          error = 'Testrun not found or has been deleted';
-        } else {
-          error = `Failed to load testrun: ${response.statusText}`;
-        }
-        loading = false;
-        return;
-      }
-
-      const data = await response.json();
+      const data = await apiGetSharedTestrun(id, signal);
       testrun = data.testrun;
       document = data.document;
     } catch (err) {
-      error = `Network error: ${err.message}`;
+      // Ignore abort errors (component unmounted or extid changed)
+      if (err.name === 'AbortError') return;
+      if (err.message?.includes('404')) {
+        error = 'Testrun not found or has been deleted';
+      } else {
+        error = `Failed to load testrun: ${err.message}`;
+      }
     } finally {
       loading = false;
     }
@@ -69,18 +66,11 @@
     }
     return counts;
   }
-
-  function stateToSeverity(state) {
-    if (state === 'done-drift') return 'breaking';
-    if (state === 'done-ok') return 'none';
-    if (state === 'error') return 'structural';
-    return 'none';
-  }
 </script>
 
-<div class="shared-testrun-view min-h-screen bg-bg-dim p-6">
+<div class="shared-testrun-view min-h-screen bg-surface p-6">
   {#if loading}
-    <div class="flex items-center justify-center h-64">
+    <div class="flex items-center justify-center h-64" aria-live="polite" role="status">
       <div class="text-text-dim">Loading shared testrun...</div>
     </div>
   {:else if error}
@@ -113,8 +103,8 @@
 
       <!-- Encrypted blob notice -->
       {#if isEncrypted}
-        <div class="bg-amber/10 border border-amber/30 rounded-lg p-4 mb-6">
-          <h3 class="font-semibold text-amber mb-1">Encrypted Content</h3>
+        <div class="bg-yellow/10 border border-yellow/30 rounded-lg p-4 mb-6">
+          <h3 class="font-semibold text-yellow mb-1">Encrypted Content</h3>
           <p class="text-text-dim text-sm">
             This testrun contains encrypted data. The full results require the
             encryption key which is not stored on the server. Only metadata is
@@ -125,19 +115,19 @@
 
       <!-- Summary stats -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-6">
-        <div class="bg-panel rounded-lg p-4 border border-edge">
+        <div class="bg-surface rounded-lg p-4 border border-edge">
           <div class="text-2xl font-bold text-text">{endpointCounts.total}</div>
           <div class="text-sm text-text-dim">Endpoints</div>
         </div>
-        <div class="bg-panel rounded-lg p-4 border border-edge">
+        <div class="bg-surface rounded-lg p-4 border border-edge">
           <div class="text-2xl font-bold text-green">{endpointCounts.ok}</div>
           <div class="text-sm text-text-dim">OK</div>
         </div>
-        <div class="bg-panel rounded-lg p-4 border border-edge">
+        <div class="bg-surface rounded-lg p-4 border border-edge">
           <div class="text-2xl font-bold text-red">{endpointCounts.drift}</div>
           <div class="text-sm text-text-dim">Drift</div>
         </div>
-        <div class="bg-panel rounded-lg p-4 border border-edge">
+        <div class="bg-surface rounded-lg p-4 border border-edge">
           <div class="text-2xl font-bold text-text-dim">{endpointCounts.idle + endpointCounts.error}</div>
           <div class="text-sm text-text-dim">Idle/Error</div>
         </div>
@@ -145,24 +135,23 @@
 
       <!-- Endpoint list (manifest portion) -->
       {#if endpoints.length > 0}
-        <section class="bg-panel rounded-lg border border-edge">
-          <h2 class="text-lg font-semibold text-text px-4 py-3 border-b border-edge">
+        <section class="bg-surface rounded-lg border border-edge" aria-labelledby="endpoints-heading">
+          <h2 id="endpoints-heading" class="text-lg font-semibold text-text px-4 py-3 border-b border-edge">
             Endpoints
           </h2>
           <ul class="divide-y divide-edge">
             {#each endpoints as ep, i}
-              {@const severity = stateToSeverity(ep.state)}
-              {@const severityInfo = SEVERITY_LEVELS[severity] || SEVERITY_LEVELS.none}
               {@const methodClass =
-                ep.method === 'GET' ? 'bg-blue/20 text-blue' :
-                ep.method === 'POST' ? 'bg-green/20 text-green' :
-                ep.method === 'PUT' || ep.method === 'PATCH' ? 'bg-amber/20 text-amber' :
+                ep.method === 'GET' ? 'bg-green/20 text-green' :
+                ep.method === 'POST' ? 'bg-accent/20 text-accent' :
+                ep.method === 'PUT' ? 'bg-yellow/20 text-yellow' :
+                ep.method === 'PATCH' ? 'bg-purple/20 text-purple' :
                 ep.method === 'DELETE' ? 'bg-red/20 text-red' : ''}
               {@const stateClass =
                 ep.state === 'done-ok' ? 'bg-green/20 text-green' :
                 ep.state === 'done-drift' ? 'bg-red/20 text-red' :
                 ep.state === 'idle' ? 'bg-text-dim/20 text-text-dim' :
-                ep.state === 'error' ? 'bg-amber/20 text-amber' : ''}
+                ep.state === 'error' ? 'bg-yellow/20 text-yellow' : ''}
               <li class="px-4 py-3 flex items-center gap-3">
                 <span class="flex-shrink-0 w-16 text-xs font-mono font-medium px-2 py-0.5 rounded text-center {methodClass}">
                   {ep.method}
@@ -197,13 +186,9 @@
       <footer class="mt-8 text-center text-text-dim text-sm">
         <p>
           This is a read-only view of a shared testrun.
-          <a href="/" class="text-blue hover:underline">Create your own</a>
+          <a href="/" class="text-accent hover:underline">Create your own</a>
         </p>
       </footer>
     </div>
   {/if}
 </div>
-
-<style>
-  /* Use Tailwind classes via @apply or inline */
-</style>

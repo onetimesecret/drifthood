@@ -672,3 +672,123 @@ class TestDoCompare:
 
         assert result["response_a"] == resp_a
         assert result["response_b"] == resp_b
+
+    def test_connection_error_host_a(self):
+        """Connection error on host A should produce error in response_a."""
+        import requests
+
+        error_response = {
+            "status": None,
+            "headers": {},
+            "body": None,
+            "error": "Connection refused",
+            "elapsed_ms": None,
+            "request_headers": {},
+            "request_url": None,
+            "request_body": None,
+        }
+        resp_b = self._mock_hit(200, {"status": "ok"})
+
+        with patch("dd.compare.hit") as mock_hit:
+            mock_hit.side_effect = [error_response, resp_b]
+            cr = CompareRequest(label="test", method="GET", path="/api/health")
+            result = do_compare("http://a", "http://b", cr, None)
+
+        # Result should still be returned, with error captured
+        assert result["response_a"]["error"] == "Connection refused"
+        assert result["response_a"]["status"] is None
+        assert result["response_b"]["status"] == 200
+        assert result["has_drift"] is True  # None vs 200 is a diff
+        # Status change from None to 200 should be classified as breaking
+        assert result["severity"] == "breaking"
+
+    def test_connection_error_host_b(self):
+        """Connection error on host B should produce error in response_b."""
+        resp_a = self._mock_hit(200, {"status": "ok"})
+        error_response = {
+            "status": None,
+            "headers": {},
+            "body": None,
+            "error": "Connection timed out",
+            "elapsed_ms": None,
+            "request_headers": {},
+            "request_url": None,
+            "request_body": None,
+        }
+
+        with patch("dd.compare.hit") as mock_hit:
+            mock_hit.side_effect = [resp_a, error_response]
+            cr = CompareRequest(label="test", method="GET", path="/api/health")
+            result = do_compare("http://a", "http://b", cr, None)
+
+        assert result["response_a"]["status"] == 200
+        assert result["response_b"]["error"] == "Connection timed out"
+        assert result["response_b"]["status"] is None
+        assert result["has_drift"] is True
+        assert result["severity"] == "breaking"
+
+    def test_both_hosts_connection_error(self):
+        """Connection errors on both hosts should be captured."""
+        error_a = {
+            "status": None,
+            "headers": {},
+            "body": None,
+            "error": "Host A unreachable",
+            "elapsed_ms": None,
+            "request_headers": {},
+            "request_url": None,
+            "request_body": None,
+        }
+        error_b = {
+            "status": None,
+            "headers": {},
+            "body": None,
+            "error": "Host B unreachable",
+            "elapsed_ms": None,
+            "request_headers": {},
+            "request_url": None,
+            "request_body": None,
+        }
+
+        with patch("dd.compare.hit") as mock_hit:
+            mock_hit.side_effect = [error_a, error_b]
+            cr = CompareRequest(label="test", method="GET", path="/api/health")
+            result = do_compare("http://a", "http://b", cr, None)
+
+        assert result["response_a"]["error"] == "Host A unreachable"
+        assert result["response_b"]["error"] == "Host B unreachable"
+        assert result["response_a"]["status"] is None
+        assert result["response_b"]["status"] is None
+        # Both None status means no diff in status (both errored the same way)
+        # But body is also None for both, so no diff there either
+        assert result["has_drift"] is False
+
+    def test_both_hosts_return_errors(self):
+        """Both hosts returning HTTP errors (5xx) should still diff correctly."""
+        resp_a = self._mock_hit(500, {"error": "Internal Server Error"})
+        resp_b = self._mock_hit(503, {"error": "Service Unavailable"})
+
+        with patch("dd.compare.hit") as mock_hit:
+            mock_hit.side_effect = [resp_a, resp_b]
+            cr = CompareRequest(label="test", method="GET", path="/api/health")
+            result = do_compare("http://a", "http://b", cr, None)
+
+        assert result["has_drift"] is True
+        assert result["response_a"]["status"] == 500
+        assert result["response_b"]["status"] == 503
+        # Status code change is breaking
+        assert result["severity"] == "breaking"
+        assert any(r["category"] == "status_change" for r in result["severity_reasons"])
+
+    def test_identical_error_responses_no_drift(self):
+        """Identical error responses should produce no drift."""
+        resp = self._mock_hit(500, {"error": "Internal Server Error"})
+
+        with patch("dd.compare.hit", return_value=resp):
+            cr = CompareRequest(label="test", method="GET", path="/api/health")
+            result = do_compare("http://a", "http://b", cr, None)
+
+        assert result["has_drift"] is False
+        assert result["severity"] == "none"
+        assert result["response_a"]["status"] == 500
+        assert result["response_b"]["status"] == 500
