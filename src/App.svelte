@@ -81,14 +81,17 @@
   });
 
   // Group dividers: detect group boundaries
+  // Use seenGroups (not just lastGroup) to avoid duplicate divider keys when
+  // endpoints with the same group appear non-contiguously.
   let groupedEntries = $derived.by(() => {
     const entries = [];
-    let lastGroup = null;
+    const seenGroups = new Set();
 
     for (const item of visibleEndpoints) {
       if (!item.visible) continue;
       const g = item.ep.group;
-      if (g && g !== lastGroup) {
+      if (g && !seenGroups.has(g)) {
+        seenGroups.add(g);
         // Compute group stats
         const groupEps = endpoints.filter(ep => ep.group === g);
         const groupVisible = visibleEndpoints.filter(v => v.ep.group === g && v.visible);
@@ -103,7 +106,6 @@
           okCount,
         });
       }
-      lastGroup = g;
       entries.push({ type: 'card', ep: item.ep });
     }
     return entries;

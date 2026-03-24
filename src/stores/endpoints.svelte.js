@@ -57,6 +57,15 @@ async function decryptEpBlob(serverEp) {
     _localId: crypto.randomUUID(),
     label: serverEp.label,
     group: serverEp.group,
+    // Defaults for fields that might be missing from older encrypted blobs
+    method: 'GET',
+    path: '',
+    body: '',
+    contentType: 'query',
+    fieldsMode: 'off',
+    cardFields: null,
+    fieldValues: null,
+    // Spread sensitive to override defaults with actual values
     ...sensitive,
     state: 'idle',   // ephemeral — not persisted
     result: null,     // ephemeral — not persisted

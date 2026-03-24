@@ -179,13 +179,14 @@
   <div class="flex gap-2 items-center px-3 py-2">
     <select
       class="bg-bg border border-edge text-text-primary px-2 py-1 rounded text-[0.85em] font-mono w-[80px]"
-      value={endpoint.method}
+      value={endpoint.method || 'GET'}
       onchange={(e) => updateEndpoint(endpoint._localId, { method: e.target.value })}
     >
-      <option>GET</option>
-      <option>POST</option>
-      <option>PUT</option>
-      <option>DELETE</option>
+      <option value="GET">GET</option>
+      <option value="POST">POST</option>
+      <option value="PUT">PUT</option>
+      <option value="PATCH">PATCH</option>
+      <option value="DELETE">DELETE</option>
     </select>
 
     <input
