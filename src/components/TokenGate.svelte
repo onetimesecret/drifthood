@@ -1,3 +1,5 @@
+<!-- src/components/TokenGate.svelte -->
+
 <script>
   import { auth, initAuth, setTokenWithKeys, setExtid, clearToken, getToken, getExtid } from '../stores/auth.svelte.js';
   import { apiGenerateToken, apiValidateToken } from '../../lib/api.js';

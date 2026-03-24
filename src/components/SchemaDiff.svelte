@@ -1,3 +1,5 @@
+<!-- src/components/SchemaDiff.svelte -->
+
 <script>
   import Modal from './Modal.svelte';
   import { apiDiffSchemas } from '../../lib/api.js';

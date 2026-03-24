@@ -1,3 +1,5 @@
+<!-- src/components/ActionBar.svelte -->
+
 <script>
   import { EXAMPLES } from '../../lib/examples.js';
   import { apiCompare } from '../../lib/api.js';

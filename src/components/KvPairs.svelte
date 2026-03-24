@@ -1,3 +1,5 @@
+<!-- src/components/KvPairs.svelte -->
+
 <script>
   import { parseKvString } from '../../lib/params.js';
   import { updateEndpoint } from '../stores/endpoints.svelte.js';

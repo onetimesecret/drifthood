@@ -1,3 +1,5 @@
+<!-- src/components/EnvironmentDetail.svelte -->
+
 <script>
   import { session, getEnvironment } from '../stores/session.svelte.js';
   import { auth } from '../stores/auth.svelte.js';

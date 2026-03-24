@@ -1,3 +1,5 @@
+<!-- src/components/OpenApiLoader.svelte -->
+
 <script>
   import Modal from './Modal.svelte';
   import { apiParseOpenapi } from '../../lib/api.js';

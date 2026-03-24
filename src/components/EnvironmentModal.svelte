@@ -1,3 +1,5 @@
+<!-- src/components/EnvironmentModal.svelte -->
+
 <script>
   import Modal from './Modal.svelte';
   import { session, createEnvironment, saveEnvironment, removeEnvironment } from '../stores/session.svelte.js';

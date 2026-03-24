@@ -1,3 +1,5 @@
+<!-- src/components/IgnoreConfig.svelte -->
+
 <script>
   import { prettifyPath } from '../../lib/format.js';
   import { apiConfig } from '../../lib/api.js';

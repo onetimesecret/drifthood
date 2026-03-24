@@ -1,3 +1,5 @@
+<!-- src/components/TestVariants.svelte -->
+
 <script>
   import { apiCompare } from '../../lib/api.js';
   import { toDiffPath } from '../../lib/format.js';

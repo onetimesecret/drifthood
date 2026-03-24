@@ -1,4 +1,5 @@
-// Svelte 5 runes — reactive state for endpoint list
+// src/stores/endpoints.svelte.js
+
 // Server-synced with client-side encryption (Phase 4B)
 
 import { encryptBlob, decryptBlob } from '../lib/crypto.js';

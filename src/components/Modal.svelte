@@ -1,3 +1,5 @@
+<!-- src/components/Modal.svelte -->
+
 <script>
   let { open, onclose, maxWidth = '700px', children } = $props();
 

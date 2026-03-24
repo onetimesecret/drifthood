@@ -1,3 +1,5 @@
+<!-- src/components/Sidebar.svelte -->
+
 <script>
   import { apiListDocuments, apiGetTestruns, apiDeleteTestrun } from '../../lib/api.js';
   import { loadTestrun as fetchAndRestoreTestrun } from '../lib/testrun-loader.js';

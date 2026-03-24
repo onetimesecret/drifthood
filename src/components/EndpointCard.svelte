@@ -1,3 +1,5 @@
+<!-- src/components/EndpointCard.svelte -->
+
 <script>
   import KvPairs from './KvPairs.svelte';
   import FieldInputs from './FieldInputs.svelte';

@@ -1,4 +1,5 @@
-// Svelte 5 runes — reactive state for UI view
+// src/stores/ui.svelte.js
+
 export const ui = $state({
   filter: 'all',           // 'all' | 'drift' | 'ok'
   collapseGen: 0,          // bumped to collapse all ResultDisplay panels

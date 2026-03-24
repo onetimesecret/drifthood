@@ -1,3 +1,5 @@
+<!-- src/components/DiffView.svelte -->
+
 <script>
   import { parseDiff, jsonSummary, SEVERITY_LEVELS } from '../../lib/diff.js';
   import { prettifyPath } from '../../lib/format.js';

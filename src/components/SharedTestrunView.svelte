@@ -1,3 +1,5 @@
+<!-- src/components/SharedTestrunView.svelte -->
+
 <script>
   /**
    * SharedTestrunView - Read-only view for shared testrun links.

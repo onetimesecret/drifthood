@@ -1,3 +1,5 @@
+<!-- src/components/ResultDisplay.svelte -->
+
 <script>
   import DiffView from './DiffView.svelte';
   import { statusLabel, contentLength, buildFullMd } from '../../lib/export.js';

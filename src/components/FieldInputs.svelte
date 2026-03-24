@@ -1,3 +1,5 @@
+<!-- src/components/FieldInputs.svelte -->
+
 <script>
   import { escHtml } from '../../lib/format.js';
   import { updateEndpoint } from '../stores/endpoints.svelte.js';

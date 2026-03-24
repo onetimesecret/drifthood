@@ -1,3 +1,5 @@
+<!-- src/components/EnvironmentSelector.svelte -->
+
 <script>
   import { apiTestHost } from '../../lib/api.js';
   import { session, getEnvironment } from '../stores/session.svelte.js';
