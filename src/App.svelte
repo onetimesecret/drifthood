@@ -1,3 +1,5 @@
+<!-- src/App.svelte -->
+
 <script>
   import TokenGate from './components/TokenGate.svelte';
   import Sidebar from './components/Sidebar.svelte';
@@ -15,7 +17,7 @@
   import { stateFingerprint } from '../lib/state.js';
   import { encryptBlob } from './lib/crypto.js';
   import { auth, getEncKey } from './stores/auth.svelte.js';
-  import { apiSave, apiCompare, apiListDocuments, apiGetDocument, apiUpdateDocumentTitle } from '../lib/api.js';
+  import { apiSave, apiCompare, apiListDocuments, apiGetDocument, apiUpdateDocumentTitle, apiSetTestrunPublic } from '../lib/api.js';
   import { loadTestrun } from './lib/testrun-loader.js';
   import { toDiffPath } from '../lib/format.js';
   import { setNestedValue, flattenObj } from '../lib/params.js';
@@ -67,7 +69,9 @@
   let breadcrumbText = $state('');
 
   // ── Derived: endpoint groups and filtering ──
+  // Note: depends on ui.collapseGen to force refresh after tab returns from background
   let visibleEndpoints = $derived.by(() => {
+    void ui.collapseGen; // establish dependency for visibility refresh
     return endpoints.map((ep, idx) => {
       const visible = ui.filter === 'all'
         || (ui.filter === 'drift' && ep.state === 'done-drift')
@@ -120,6 +124,8 @@
     if (!documents.currentTestrunExtid) return;
     const shareUrl = `${window.location.origin}/t/${documents.currentTestrunExtid}`;
     try {
+      // Mark testrun as public before sharing
+      await apiSetTestrunPublic(documents.currentTestrunExtid, true);
       await navigator.clipboard.writeText(shareUrl);
       shareButtonText = 'Copied';
       if (shareButtonTimeout) clearTimeout(shareButtonTimeout);
@@ -127,7 +133,7 @@
         shareButtonText = 'Share';
       }, 2000);
     } catch (err) {
-      console.error('Failed to copy share link:', err);
+      console.error('Failed to share testrun:', err);
     }
   }
 
@@ -372,12 +378,18 @@
   }
 
   // Pause autosave when page hidden, resume when visible
+  // Also bump ui.collapseGen to force derived values to re-evaluate
+  // (works around Svelte 5 reactivity edge cases after tab freeze/unfreeze)
   $effect(() => {
     function onVisibility() {
       if (document.hidden) {
         stopAutosave();
-      } else if (documents.currentDocumentExtid) {
-        startAutosave();
+      } else {
+        // Force UI refresh after returning from background
+        ui.collapseGen++;
+        if (documents.currentDocumentExtid) {
+          startAutosave();
+        }
       }
     }
     document.addEventListener('visibilitychange', onVisibility);
