@@ -1,4 +1,5 @@
-// Reactive vibe state derived from the URL query parameter `v`.
+// src/stores/vibe.svelte.js
+
 //
 // Vibes codify progressive disclosure as a URL-level concept:
 //   new   → just generated a token, showing the "save this" screen

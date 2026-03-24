@@ -1,3 +1,5 @@
+// src/lib/crypto.js
+
 /**
  * Client-side cryptographic operations for the drift detector.
  * Zero dependencies — uses Web Crypto API (SubtleCrypto) exclusively.

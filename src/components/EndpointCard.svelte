@@ -1,3 +1,5 @@
+<!-- src/components/EndpointCard.svelte -->
+
 <script>
   import KvPairs from './KvPairs.svelte';
   import FieldInputs from './FieldInputs.svelte';
@@ -173,17 +175,19 @@
   }
 </script>
 
-<div class="bg-surface border {stateBorder} rounded-lg mb-2 overflow-hidden transition-colors duration-200">
+<div class="bg-surface border {stateBorder} rounded-lg mb-2 overflow-hidden transition-colors duration-200" data-testid="endpoint-card-{endpoint._localId}">
   <div class="flex gap-2 items-center px-3 py-2">
     <select
       class="bg-bg border border-edge text-text-primary px-2 py-1 rounded text-[0.85em] font-mono w-[80px]"
-      value={endpoint.method}
+      value={endpoint.method || 'GET'}
       onchange={(e) => updateEndpoint(endpoint._localId, { method: e.target.value })}
+      data-testid="endpoint-{endpoint._localId}-method"
     >
-      <option>GET</option>
-      <option>POST</option>
-      <option>PUT</option>
-      <option>DELETE</option>
+      <option value="GET">GET</option>
+      <option value="POST">POST</option>
+      <option value="PUT">PUT</option>
+      <option value="PATCH">PATCH</option>
+      <option value="DELETE">DELETE</option>
     </select>
 
     <input
@@ -192,6 +196,7 @@
       placeholder="/api/v1/status"
       value={endpoint.path}
       oninput={(e) => updateEndpoint(endpoint._localId, { path: e.target.value })}
+      data-testid="endpoint-{endpoint._localId}-path"
     />
 
     {#if showBodyInput}
@@ -201,6 +206,7 @@
         placeholder={ct.placeholder}
         value={endpoint.body}
         oninput={(e) => updateEndpoint(endpoint._localId, { body: e.target.value })}
+        data-testid="endpoint-{endpoint._localId}-body"
       />
     {/if}
 
@@ -209,6 +215,7 @@
       type="button"
       onclick={toggleCt}
       title="query / form / json"
+      data-testid="endpoint-{endpoint._localId}-content-type"
     >{ct.label}</button>
 
     {#if hasAnyFields}
@@ -217,6 +224,7 @@
         class="text-[0.65em] font-mono px-[7px] py-[3px] rounded cursor-pointer border border-edge bg-bg whitespace-nowrap select-none {endpoint.fieldsMode === 'on' ? 'text-purple border-purple' : 'text-text-dim'}"
         onclick={toggleFieldsMode}
         title="Toggle per-field inputs"
+        data-testid="endpoint-{endpoint._localId}-fields-toggle"
       >FIELDS</button>
     {/if}
 
@@ -229,6 +237,7 @@
         placeholder="label"
         value={endpoint.label}
         oninput={(e) => updateEndpoint(endpoint._localId, { label: e.target.value })}
+        data-testid="endpoint-{endpoint._localId}-label"
       />
     {/if}
 
@@ -236,14 +245,14 @@
       <span class="text-[0.6em] text-text-dim font-mono bg-bg px-1.5 py-0.5 rounded-sm border border-edge">{endpoint.group}</span>
     {/if}
 
-    <button class="bg-transparent border border-edge text-text-dim cursor-pointer text-[0.75em] px-2 py-[3px] rounded font-mono hover:text-accent hover:border-accent" onclick={runOne} title="Run this endpoint">
+    <button class="bg-transparent border border-edge text-text-dim cursor-pointer text-[0.75em] px-2 py-[3px] rounded font-mono hover:text-accent hover:border-accent" onclick={runOne} title="Run this endpoint" data-testid="endpoint-{endpoint._localId}-run">
       {#if endpoint.state === 'running'}
         <span class="inline-block w-3 h-3 border-2 border-edge border-t-accent rounded-full animate-spin"></span>
       {:else}
         run
       {/if}
     </button>
-    <button class="bg-transparent border-none text-text-dim cursor-pointer text-[1.1em] px-1.5 py-0.5 rounded hover:text-red hover:bg-red/10" onclick={remove} title="Remove">&times;</button>
+    <button class="bg-transparent border-none text-text-dim cursor-pointer text-[1.1em] px-1.5 py-0.5 rounded hover:text-red hover:bg-red/10" onclick={remove} title="Remove" data-testid="endpoint-{endpoint._localId}-remove">&times;</button>
   </div>
 
   {#if showFields}

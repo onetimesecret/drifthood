@@ -1,3 +1,5 @@
+# dd/extid.py
+
 """UUIDv7 generation (RFC 9562).
 
 Time-ordered UUIDs with millisecond precision. Used as external

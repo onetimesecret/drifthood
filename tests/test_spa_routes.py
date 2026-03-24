@@ -1,4 +1,4 @@
-# drift-detector/tests/test_spa_routes.py
+# tests/test_spa_routes.py
 
 """
 Tests for SPA fallback routes in dd/app.py.
@@ -55,10 +55,18 @@ def store():
 
 
 @pytest.fixture
-def client():
-    """Create a test client with the full app."""
+def client(tmp_path):
+    """Create a test client with the full app.
+
+    Uses a temporary dist dir with a minimal index.html so tests
+    don't depend on a frontend build existing on disk.
+    """
+    dist_dir = tmp_path / "dist"
+    dist_dir.mkdir()
+    (dist_dir / "index.html").write_text("<html><body>test</body></html>")
+
     from dd.app import create_app
-    app = create_app()
+    app = create_app(dist_dir=str(dist_dir))
     return TestClient(app)
 
 

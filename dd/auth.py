@@ -1,3 +1,5 @@
+# dd/auth.py
+
 """
 Token-based session identity.
 

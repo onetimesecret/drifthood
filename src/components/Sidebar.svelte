@@ -1,3 +1,5 @@
+<!-- src/components/Sidebar.svelte -->
+
 <script>
   import { apiListDocuments, apiGetTestruns, apiDeleteTestrun } from '../../lib/api.js';
   import { loadTestrun as fetchAndRestoreTestrun } from '../lib/testrun-loader.js';
@@ -116,10 +118,10 @@
 <div class="w-[250px] min-w-[250px] bg-surface border-r border-edge flex flex-col overflow-hidden transition-all duration-150 {ui.sidebarCollapsed ? 'w-0 min-w-0 border-r-0' : ''}">
   <div class="flex items-center justify-between px-3.5 py-3 border-b border-edge shrink-0">
     <h2 class="text-[0.75em] uppercase tracking-widest text-text-dim font-semibold whitespace-nowrap">Documents</h2>
-    <button class="bg-transparent border-none text-text-dim cursor-pointer text-[1em] px-1.5 py-0.5 rounded hover:text-text-primary hover:bg-white/5" onclick={toggleSidebar} title="Collapse sidebar">&#9666;</button>
+    <button data-testid="btn-sidebar-collapse" class="bg-transparent border-none text-text-dim cursor-pointer text-[1em] px-1.5 py-0.5 rounded hover:text-text-primary hover:bg-white/5" onclick={toggleSidebar} title="Collapse sidebar">&#9666;</button>
   </div>
 
-  <button class="block w-[calc(100%-24px)] mx-3 my-2 px-2.5 py-1.5 text-[0.8em] bg-transparent border border-dashed border-edge text-text-dim rounded-md cursor-pointer text-left hover:border-accent hover:text-accent" onclick={newDocument}>+ New document</button>
+  <button data-testid="btn-new-document" class="block w-[calc(100%-24px)] mx-3 my-2 px-2.5 py-1.5 text-[0.8em] bg-transparent border border-dashed border-edge text-text-dim rounded-md cursor-pointer text-left hover:border-accent hover:text-accent" onclick={newDocument}>+ New document</button>
 
   <div class="flex-1 overflow-y-auto py-1">
     {#if !documents.currentDocumentExtid && endpoints.length > 0}
@@ -135,9 +137,10 @@
       {#each documents.list as doc}
         {@const expanded = isDocExpanded(doc.extid)}
         {@const isCurrent = doc.extid === documents.currentDocumentExtid}
-        <div class="border-b border-edge">
+        <div data-testid="sidebar-document-{doc.extid}" class="border-b border-edge">
           <button
             type="button"
+            data-testid="sidebar-doc-toggle-{doc.extid}"
             class="w-full bg-transparent border-none text-left text-inherit flex items-center gap-1.5 px-3.5 py-2 cursor-pointer select-none text-[0.8em] hover:bg-white/[0.03] {isCurrent ? 'bg-accent/[0.08]' : ''}"
             onclick={() => toggleDoc(doc.extid)}
           >
@@ -158,6 +161,7 @@
                 <div
                   role="button"
                   tabindex="0"
+                  data-testid="sidebar-testrun-{s.extid}"
                   class="group/testrun flex items-center gap-1.5 py-1 pl-7 pr-3.5 cursor-pointer text-[0.75em] font-mono text-text-dim hover:bg-white/[0.03] hover:text-text-primary {isActive ? 'text-accent' : ''}"
                   onclick={() => loadTestrun(doc.extid, s.extid, s.testrun_number)}
                   onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); loadTestrun(doc.extid, s.extid, s.testrun_number); } }}
@@ -174,6 +178,7 @@
                   {/if}
                   <span class="flex-1 text-right">{relativeTime(s.created_at)}</span>
                   <button
+                    data-testid="btn-delete-testrun-{s.extid}"
                     class="opacity-0 group-hover/testrun:opacity-60 bg-transparent border-none text-text-dim cursor-pointer text-[0.9em] px-0.5 rounded-sm shrink-0 hover:opacity-100 hover:text-red"
                     onclick={(e) => deleteTestrunClick(doc.extid, s.extid, s.testrun_number, e)}
                     title="Delete testrun"
@@ -189,6 +194,7 @@
 </div>
 
 <button
+  data-testid="btn-sidebar-expand"
   class="fixed top-2.5 left-2.5 z-20 bg-surface border border-edge text-text-dim cursor-pointer px-2 py-1 rounded text-[0.8em] hover:text-text-primary hover:border-text-dim {ui.sidebarCollapsed ? 'block' : 'hidden'}"
   onclick={toggleSidebar}
   title="Expand sidebar"

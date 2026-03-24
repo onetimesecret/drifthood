@@ -1,4 +1,4 @@
-# drift-detector/dd/app.py
+# dd/app.py
 
 """
 Drift Detector - FastAPI app factory.
@@ -27,7 +27,7 @@ _UUID_RE = re.compile(
 )
 
 
-def create_app() -> FastAPI:
+def create_app(dist_dir: str | None = None) -> FastAPI:
     app = FastAPI(title="Drift Detector")
     app.add_middleware(
         CORSMiddleware,
@@ -45,13 +45,26 @@ def create_app() -> FastAPI:
     app.include_router(openapi_router)
 
     # ── Frontend (Vite build output) ──
-    dist_dir = os.path.join(
-        os.path.dirname(os.path.dirname(__file__)), "dist"
-    )
+    # Routes are always registered. In dev/test without a build, they
+    # return 503 instead of silently missing from the router.
+    if dist_dir is None:
+        dist_dir = os.path.join(
+            os.path.dirname(os.path.dirname(__file__)), "dist"
+        )
+    index_html = os.path.join(dist_dir, "index.html")
+
+    def _serve_index():
+        """Return index.html or raise 503 if frontend is not built."""
+        if not os.path.isfile(index_html):
+            raise HTTPException(
+                status_code=503,
+                detail="Frontend not built — run npm run build",
+            )
+        return FileResponse(index_html)
 
     @app.get("/")
     async def index():
-        return FileResponse(os.path.join(dist_dir, "index.html"))
+        return _serve_index()
 
     # SPA fallback — serve index.html for /s/{extid} session routes.
     # Rejects non-UUID paths and unknown session extids with 404.
@@ -62,14 +75,14 @@ def create_app() -> FastAPI:
         session = store.get_session_by_extid(extid)
         if not session:
             raise HTTPException(status_code=404, detail="Not found")
-        return FileResponse(os.path.join(dist_dir, "index.html"))
+        return _serve_index()
 
     # SPA fallback — serve index.html for /e/{extid} environment detail routes
     @app.get("/e/{extid:path}")
     async def environment_spa_fallback(extid: str):
         if not _UUID_RE.match(extid):
             raise HTTPException(status_code=404, detail="Not found")
-        return FileResponse(os.path.join(dist_dir, "index.html"))
+        return _serve_index()
 
     # SPA fallback — serve index.html for /t/{extid} shared testrun routes.
     # Only validates UUID format; DB validation happens in /api/share/{extid}.
@@ -77,14 +90,16 @@ def create_app() -> FastAPI:
     async def testrun_spa_fallback(extid: str):
         if not _UUID_RE.match(extid):
             raise HTTPException(status_code=404, detail="Not found")
-        return FileResponse(os.path.join(dist_dir, "index.html"))
+        return _serve_index()
 
     # Vite puts hashed JS/CSS in dist/assets/
-    app.mount(
-        "/assets",
-        StaticFiles(directory=os.path.join(dist_dir, "assets")),
-        name="assets",
-    )
+    assets_dir = os.path.join(dist_dir, "assets")
+    if os.path.isdir(assets_dir):
+        app.mount(
+            "/assets",
+            StaticFiles(directory=assets_dir),
+            name="assets",
+        )
 
     return app
 

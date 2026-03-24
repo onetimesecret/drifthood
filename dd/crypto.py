@@ -1,3 +1,5 @@
+# dd/crypto.py
+
 """HKDF key derivation (RFC 5869) using stdlib hmac."""
 
 import hmac

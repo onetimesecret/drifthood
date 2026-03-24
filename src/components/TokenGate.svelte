@@ -1,3 +1,5 @@
+<!-- src/components/TokenGate.svelte -->
+
 <script>
   import { auth, initAuth, setTokenWithKeys, setExtid, clearToken, getToken, getExtid } from '../stores/auth.svelte.js';
   import { apiGenerateToken, apiValidateToken } from '../../lib/api.js';
@@ -189,15 +191,17 @@
   </div>
 {:else if auth.token && auth.authKey && !generatedToken}
   <!-- Authenticated: show token bar + children -->
-  <div class="flex items-center gap-3 px-3 py-1.5 bg-surface border-b border-edge text-[0.75em] font-mono -mx-5 -mt-5 mb-4">
+  <div data-testid="token-bar" class="flex items-center gap-3 px-3 py-1.5 bg-surface border-b border-edge text-[0.75em] font-mono -mx-5 -mt-5 mb-4">
     <span class="text-text-dim" title={getToken()}>
       {maskedToken(getToken())}
     </span>
     <button
+      data-testid="btn-copy-token-bar"
       class="bg-transparent border border-edge text-text-dim px-2 py-0.5 rounded cursor-pointer text-[0.85em] hover:text-accent hover:border-accent"
       onclick={copyTokenBar}
     >{copiedBar ? 'Copied' : 'Copy'}</button>
     <button
+      data-testid="btn-sign-out"
       class="bg-transparent border border-edge text-text-dim px-2 py-0.5 rounded cursor-pointer text-[0.85em] ml-auto hover:text-red hover:border-red"
       onclick={handleSignOut}
     >Sign out</button>
@@ -206,7 +210,7 @@
   {@render children()}
 {:else}
   <!-- Unauthenticated: landing page -->
-  <div class="flex items-center justify-center min-h-[80vh]">
+  <div data-testid="token-gate" class="flex items-center justify-center min-h-[80vh]">
     <div class="w-full max-w-md">
       <h1 class="text-[1.8em] font-semibold text-text-primary text-center mb-8">Drift Detector</h1>
 
@@ -219,6 +223,7 @@
           </div>
           <div class="flex items-center gap-2 mb-3">
             <button
+              data-testid="btn-copy-generated-token"
               class="bg-transparent border border-edge text-text-dim px-3 py-1 rounded cursor-pointer text-[0.8em] hover:text-accent hover:border-accent"
               onclick={() => copyToken(generatedToken)}
             >{copied ? 'Copied' : 'Copy'}</button>
@@ -227,6 +232,7 @@
             Save this token -- it is the only way to access your data later.
           </p>
           <button
+            data-testid="btn-continue-to-app"
             class="mt-4 w-full bg-[#238636] border-[#2ea043] text-white px-4 py-2 rounded-md text-[0.85em] font-medium cursor-pointer hover:bg-[#2ea043]"
             onclick={() => { generatedToken = null; setVibe('fresh'); }}
           >Continue to app</button>
@@ -236,6 +242,7 @@
         <div class="bg-surface border border-edge rounded-lg p-5 mb-4">
           <div class="text-[0.8em] font-semibold text-text-primary mb-3">Start fresh</div>
           <button
+            data-testid="btn-generate-token"
             class="w-full bg-[#238636] border border-[#2ea043] text-white px-4 py-2.5 rounded-md text-[0.85em] font-medium cursor-pointer hover:bg-[#2ea043] disabled:opacity-50 disabled:cursor-not-allowed"
             onclick={handleGenerate}
             disabled={loading}
@@ -247,6 +254,7 @@
           <div class="text-[0.8em] font-semibold text-text-primary mb-3">I have a token</div>
           <div class="flex gap-2">
             <input
+              data-testid="token-input"
               class="flex-1 bg-bg border border-edge text-text-primary px-3 py-2 rounded-md font-mono text-[0.8em] placeholder:text-text-dim"
               type="text"
               placeholder={getPlaceholder()}
@@ -254,6 +262,7 @@
               onkeydown={handleLoadKeydown}
             />
             <button
+              data-testid="btn-load-token"
               class="bg-transparent border border-edge text-text-dim px-4 py-2 rounded-md text-[0.85em] font-medium cursor-pointer hover:text-accent hover:border-accent disabled:opacity-50 disabled:cursor-not-allowed"
               onclick={handleLoad}
               disabled={loading || !tokenInput.trim()}
@@ -272,6 +281,7 @@
       <!-- Remember me -->
       <label class="flex items-center gap-2 text-[0.8em] text-text-dim cursor-pointer px-1">
         <input
+          data-testid="checkbox-remember"
           type="checkbox"
           class="accent-accent"
           bind:checked={rememberMe}

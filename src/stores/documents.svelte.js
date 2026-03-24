@@ -1,4 +1,5 @@
-// Svelte 5 runes — reactive state for document/testrun tracking.
+// src/stores/documents.svelte.js
+
 //
 // All references use UUIDv7 extids. Integer IDs never appear here.
 export const documents = $state({

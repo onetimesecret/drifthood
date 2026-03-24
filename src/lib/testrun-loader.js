@@ -1,4 +1,5 @@
-// ── Shared testrun loading logic ──
+// src/lib/testrun-loader.js
+
 //
 // Fetches a testrun from the API, decrypts the encrypted blob if present,
 // restores state into reactive stores, loads manifest-style entities,

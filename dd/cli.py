@@ -1,4 +1,4 @@
-# drift-detector/dd/cli.py
+# dd/cli.py
 
 """
 CLI utilities for headless/scripted drift detection.

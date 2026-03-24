@@ -1,3 +1,5 @@
+<!-- src/components/EnvironmentDetail.svelte -->
+
 <script>
   import { session, getEnvironment } from '../stores/session.svelte.js';
   import { auth } from '../stores/auth.svelte.js';
@@ -28,6 +30,7 @@
 <div class="max-w-2xl mx-auto py-8 px-4">
   <button
     class="text-[0.8em] text-text-dim hover:text-accent cursor-pointer bg-transparent border-none mb-6 font-mono"
+    data-testid="btn-back"
     onclick={goBack}
   >&larr; Back to session</button>
 

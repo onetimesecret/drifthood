@@ -1,3 +1,5 @@
+# dd/endpoints_api.py
+
 """Endpoint CRUD routes. Endpoints are server-synced, encrypted client-side."""
 
 from fastapi import APIRouter, Request, HTTPException

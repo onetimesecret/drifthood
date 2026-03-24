@@ -1,3 +1,5 @@
+<!-- src/components/FieldInputs.svelte -->
+
 <script>
   import { escHtml } from '../../lib/format.js';
   import { updateEndpoint } from '../stores/endpoints.svelte.js';
@@ -90,6 +92,7 @@
               class="bg-bg border border-edge text-text-primary px-1.5 py-0.5 rounded font-mono text-[0.9em] flex-1 min-w-[100px]"
               value={fieldValues[f.path] ?? ''}
               onchange={(e) => onFieldChange(f.path, e.target.value)}
+              data-testid="field-{f.path}-select"
             >
               {#each f.enum as opt}
                 <option value={String(opt)} selected={String(opt) === String(fieldValues[f.path])}>{opt}</option>
@@ -100,6 +103,7 @@
               class="bg-bg border border-edge text-text-primary px-1.5 py-0.5 rounded font-mono text-[0.9em] flex-1 min-w-[100px]"
               value={fieldValues[f.path] ?? 'true'}
               onchange={(e) => onFieldChange(f.path, e.target.value)}
+              data-testid="field-{f.path}-bool"
             >
               <option value="true" selected={fieldValues[f.path] === 'true'}>true</option>
               <option value="false" selected={fieldValues[f.path] === 'false'}>false</option>
@@ -114,6 +118,7 @@
               title={f.description ?? undefined}
               placeholder={f.type}
               oninput={(e) => onFieldChange(f.path, e.target.value)}
+              data-testid="field-{f.path}-number"
             />
           {:else}
             <input
@@ -123,6 +128,7 @@
               title={f.description ?? undefined}
               placeholder={f.type}
               oninput={(e) => onFieldChange(f.path, e.target.value)}
+              data-testid="field-{f.path}-text"
             />
           {/if}
         </div>

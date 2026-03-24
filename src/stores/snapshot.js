@@ -1,3 +1,5 @@
+// src/stores/snapshot.js
+
 import { session, resetSession } from './session.svelte.js';
 import { endpoints, addEndpoint, clearEndpointsLocal } from './endpoints.svelte.js';
 import { ui } from './ui.svelte.js';

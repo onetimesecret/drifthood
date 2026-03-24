@@ -1,3 +1,5 @@
+<!-- src/App.svelte -->
+
 <script>
   import TokenGate from './components/TokenGate.svelte';
   import Sidebar from './components/Sidebar.svelte';
@@ -15,7 +17,7 @@
   import { stateFingerprint } from '../lib/state.js';
   import { encryptBlob } from './lib/crypto.js';
   import { auth, getEncKey } from './stores/auth.svelte.js';
-  import { apiSave, apiCompare, apiListDocuments, apiGetDocument, apiUpdateDocumentTitle } from '../lib/api.js';
+  import { apiSave, apiCompare, apiListDocuments, apiGetDocument, apiUpdateDocumentTitle, apiSetTestrunPublic } from '../lib/api.js';
   import { loadTestrun } from './lib/testrun-loader.js';
   import { toDiffPath } from '../lib/format.js';
   import { setNestedValue, flattenObj } from '../lib/params.js';
@@ -67,7 +69,9 @@
   let breadcrumbText = $state('');
 
   // ── Derived: endpoint groups and filtering ──
+  // Note: depends on ui.collapseGen to force refresh after tab returns from background
   let visibleEndpoints = $derived.by(() => {
+    void ui.collapseGen; // establish dependency for visibility refresh
     return endpoints.map((ep, idx) => {
       const visible = ui.filter === 'all'
         || (ui.filter === 'drift' && ep.state === 'done-drift')
@@ -77,14 +81,17 @@
   });
 
   // Group dividers: detect group boundaries
+  // Use seenGroups (not just lastGroup) to avoid duplicate divider keys when
+  // endpoints with the same group appear non-contiguously.
   let groupedEntries = $derived.by(() => {
     const entries = [];
-    let lastGroup = null;
+    const seenGroups = new Set();
 
     for (const item of visibleEndpoints) {
       if (!item.visible) continue;
       const g = item.ep.group;
-      if (g && g !== lastGroup) {
+      if (g && !seenGroups.has(g)) {
+        seenGroups.add(g);
         // Compute group stats
         const groupEps = endpoints.filter(ep => ep.group === g);
         const groupVisible = visibleEndpoints.filter(v => v.ep.group === g && v.visible);
@@ -99,7 +106,6 @@
           okCount,
         });
       }
-      lastGroup = g;
       entries.push({ type: 'card', ep: item.ep });
     }
     return entries;
@@ -120,6 +126,8 @@
     if (!documents.currentTestrunExtid) return;
     const shareUrl = `${window.location.origin}/t/${documents.currentTestrunExtid}`;
     try {
+      // Mark testrun as public before sharing
+      await apiSetTestrunPublic(documents.currentTestrunExtid, true);
       await navigator.clipboard.writeText(shareUrl);
       shareButtonText = 'Copied';
       if (shareButtonTimeout) clearTimeout(shareButtonTimeout);
@@ -127,7 +135,7 @@
         shareButtonText = 'Share';
       }, 2000);
     } catch (err) {
-      console.error('Failed to copy share link:', err);
+      console.error('Failed to share testrun:', err);
     }
   }
 
@@ -372,12 +380,18 @@
   }
 
   // Pause autosave when page hidden, resume when visible
+  // Also bump ui.collapseGen to force derived values to re-evaluate
+  // (works around Svelte 5 reactivity edge cases after tab freeze/unfreeze)
   $effect(() => {
     function onVisibility() {
       if (document.hidden) {
         stopAutosave();
-      } else if (documents.currentDocumentExtid) {
-        startAutosave();
+      } else {
+        // Force UI refresh after returning from background
+        ui.collapseGen++;
+        if (documents.currentDocumentExtid) {
+          startAutosave();
+        }
       }
     }
     document.addEventListener('visibilitychange', onVisibility);
@@ -608,6 +622,7 @@
     <div class="flex items-center gap-3 mb-1">
       <h1 class="text-[1.4em] font-semibold mb-1">Drift Detector <span class="text-[0.5em] font-normal opacity-50">v{DD_VERSION}</span></h1>
       <button
+        data-testid="btn-save"
         class="btn-ghost ml-auto"
         style={saveStatus.color ? `color:${saveStatus.color}` : ''}
         onclick={saveTestrun}
@@ -618,6 +633,7 @@
       {/if}
       {#if documents.currentTestrunExtid}
         <button
+          data-testid="btn-share"
           class="btn-ghost text-[0.8em]"
           onclick={copyShareLink}
           title="Copy shareable link to clipboard"
@@ -628,6 +644,7 @@
     <!-- Session header -->
     <div class="mb-4">
       <input
+        data-testid="doc-title"
         class="bg-transparent border-none text-text-primary text-[1.1em] font-semibold font-[inherit] w-full px-0 py-1 outline-none border-b border-b-transparent focus:border-b-accent placeholder:text-text-dim placeholder:font-normal"
         type="text"
         placeholder="Testrun title (optional)"
@@ -636,6 +653,7 @@
         onblur={onTitleBlur}
       />
       <textarea
+        data-testid="doc-notes"
         class="bg-transparent border-none text-text-dim text-[0.8em] font-[inherit] w-full px-0 py-0.5 outline-none resize-none border-b border-b-transparent focus:border-b-edge focus:text-text-primary leading-snug placeholder:text-text-dim"
         placeholder="Notes / context for this comparison testrun"
         rows="1"
@@ -647,6 +665,7 @@
     <div class="flex items-center gap-2 mb-2">
       <span class="text-[0.7em] uppercase tracking-widest text-text-dim font-semibold">Environments</span>
       <button
+        data-testid="btn-manage-environments"
         class="text-[0.7em] text-text-dim hover:text-accent cursor-pointer bg-transparent border border-edge px-2 py-0.5 rounded font-mono hover:border-accent"
         onclick={() => { ui.activeModal = 'environments'; }}
       >Manage</button>
@@ -669,7 +688,7 @@
     {#if breadcrumbText}
       <div class="flex items-center gap-2 text-[0.75em] font-mono text-text-dim px-2.5 py-1 bg-surface border border-edge rounded mb-2.5">
         <span class="text-accent">{breadcrumbText}</span>
-        <button class="cursor-pointer text-text-dim bg-transparent border-none text-[1em] px-1 hover:text-red" onclick={dismissBreadcrumb}>&times;</button>
+        <button data-testid="btn-dismiss-breadcrumb" class="cursor-pointer text-text-dim bg-transparent border-none text-[1em] px-1 hover:text-red" onclick={dismissBreadcrumb}>&times;</button>
       </div>
     {/if}
 
@@ -689,7 +708,7 @@
                 {/if}
               {/if}
             </span>
-            <button class="bg-transparent border border-edge text-text-dim cursor-pointer text-[0.85em] px-2 py-0.5 rounded ml-auto hover:text-accent hover:border-accent" onclick={() => runGroup(entry.group)}>run group</button>
+            <button data-testid="btn-run-group-{entry.group}" class="bg-transparent border border-edge text-text-dim cursor-pointer text-[0.85em] px-2 py-0.5 rounded ml-auto hover:text-accent hover:border-accent" onclick={() => runGroup(entry.group)}>run group</button>
           </div>
         {:else}
           <EndpointCard endpoint={entry.ep} />
@@ -703,6 +722,7 @@
     <!-- Back to top -->
     {#if showBackToTop}
       <button
+        data-testid="btn-back-to-top"
         class="fixed bottom-6 right-6 bg-surface border border-edge text-accent w-10 h-10 rounded-full cursor-pointer text-[1.2em] flex items-center justify-center z-30 shadow-[0_4px_12px_rgba(0,0,0,0.4)] hover:bg-accent/15"
         onclick={scrollToTop}
         title="Scroll to top"
@@ -721,7 +741,7 @@
 
 <!-- Drop overlay -->
 {#if dropActive}
-  <div class="fixed inset-0 z-100 bg-[rgba(13,17,23,0.85)] flex items-center justify-center pointer-events-none">
+  <div data-testid="drop-overlay" class="fixed inset-0 z-100 bg-[rgba(13,17,23,0.85)] flex items-center justify-center pointer-events-none">
     <div class="border-2 border-dashed border-accent rounded-2xl px-16 py-12 text-center text-accent font-mono">
       <div class="text-[2.5em] mb-3">&#128230;</div>
       <div class="text-[1em] font-semibold">Drop to import</div>

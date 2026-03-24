@@ -1,4 +1,5 @@
-// Svelte 5 runes — reactive state for token-based session identity.
+// src/stores/auth.svelte.js
+
 //
 // The raw token is the root secret, stored in browser storage.
 // The extid is the public-facing session identifier (used in URLs, HKDF salt).

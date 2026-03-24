@@ -1,4 +1,4 @@
-# drift-detector/tests/test_compare.py
+# tests/test_compare.py
 
 """
 Tests for dd.compare: response validation against parsed schema fields,

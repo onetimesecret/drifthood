@@ -1,3 +1,5 @@
+<!-- src/components/EnvironmentSelector.svelte -->
+
 <script>
   import { apiTestHost } from '../../lib/api.js';
   import { session, getEnvironment } from '../stores/session.svelte.js';
@@ -49,6 +51,7 @@
   {:else}
     <select
       class="bg-surface border border-edge text-text-primary px-2.5 py-1.5 rounded-md font-mono text-[0.85em] w-full"
+      data-testid="env-{side.toLowerCase()}-select"
       value={selectedId}
       onchange={onSelect}
     >
@@ -65,6 +68,7 @@
         </span>
         <button
           class="text-[0.8em] px-2 py-0.5 rounded cursor-pointer bg-transparent border border-edge text-text-dim font-mono ml-auto hover:text-accent hover:border-accent {testStatus.cls === 'ok' ? 'text-green border-green' : ''} {testStatus.cls === 'fail' ? 'text-red border-red' : ''}"
+          data-testid="env-{side.toLowerCase()}-test"
           onclick={testHostClick}
         >{testStatus.text}</button>
       </div>

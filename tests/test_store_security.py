@@ -1,4 +1,4 @@
-# drift-detector/tests/test_store_security.py
+# tests/test_store_security.py
 
 """
 Security-critical tests for store.py.

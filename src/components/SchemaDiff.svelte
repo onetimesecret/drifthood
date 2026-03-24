@@ -1,3 +1,5 @@
+<!-- src/components/SchemaDiff.svelte -->
+
 <script>
   import Modal from './Modal.svelte';
   import { apiDiffSchemas } from '../../lib/api.js';
@@ -86,7 +88,7 @@
 <Modal open={open} onclose={handleClose} maxWidth="900px">
   <div class="flex items-center justify-between px-[18px] py-3.5 border-b border-edge">
     <h3 class="text-[0.95em] font-semibold">Diff Request &amp; Response Schemas</h3>
-    <button class="bg-transparent border-none text-text-dim cursor-pointer text-[1.3em] px-1 rounded hover:text-red" onclick={handleClose}>&times;</button>
+    <button data-testid="btn-close-schema-diff" class="bg-transparent border-none text-text-dim cursor-pointer text-[1.3em] px-1 rounded hover:text-red" onclick={handleClose}>&times;</button>
   </div>
 
   <div class="p-[18px] overflow-y-auto flex-1">
@@ -97,17 +99,17 @@
     <div class="grid grid-cols-2 gap-4 mb-3">
       <div>
         <div class="text-[0.7em] uppercase text-text-dim mb-1">Spec A</div>
-        <input type="text" bind:value={urlA} placeholder="URL to spec A" class="bg-bg border border-edge text-text-primary px-2.5 py-1.5 rounded-md font-mono text-[0.85em] w-full mb-1.5" />
-        <input type="file" accept=".json,.yaml,.yml" onchange={(e) => { fileA = e.target.files[0] || null; }} class="text-[0.8em] text-text-dim" />
+        <input type="text" bind:value={urlA} placeholder="URL to spec A" class="bg-bg border border-edge text-text-primary px-2.5 py-1.5 rounded-md font-mono text-[0.85em] w-full mb-1.5" data-testid="schema-url-a" />
+        <input type="file" accept=".json,.yaml,.yml" onchange={(e) => { fileA = e.target.files[0] || null; }} class="text-[0.8em] text-text-dim" data-testid="schema-file-a" />
       </div>
       <div>
         <div class="text-[0.7em] uppercase text-text-dim mb-1">Spec B</div>
-        <input type="text" bind:value={urlB} placeholder="URL to spec B" class="bg-bg border border-edge text-text-primary px-2.5 py-1.5 rounded-md font-mono text-[0.85em] w-full mb-1.5" />
-        <input type="file" accept=".json,.yaml,.yml" onchange={(e) => { fileB = e.target.files[0] || null; }} class="text-[0.8em] text-text-dim" />
+        <input type="text" bind:value={urlB} placeholder="URL to spec B" class="bg-bg border border-edge text-text-primary px-2.5 py-1.5 rounded-md font-mono text-[0.85em] w-full mb-1.5" data-testid="schema-url-b" />
+        <input type="file" accept=".json,.yaml,.yml" onchange={(e) => { fileB = e.target.files[0] || null; }} class="text-[0.8em] text-text-dim" data-testid="schema-file-b" />
       </div>
     </div>
 
-    <button class="btn-primary" onclick={runSchemaDiff}>Compare</button>
+    <button class="btn-primary" data-testid="btn-schema-compare" onclick={runSchemaDiff}>Compare</button>
 
     {#if status}
       <div class="mt-2 text-[0.85em] text-text-dim">
@@ -135,7 +137,7 @@
             {@const key = endpointKey(r)}
             {@const isOpen = expandedEndpoints.has(key)}
             <div class="mb-2.5 border border-edge rounded-md overflow-hidden">
-              <div class="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer font-mono text-[0.8em] bg-white/[0.02] hover:bg-white/[0.04]" role="button" tabindex="0" onclick={() => toggleEndpoint(r)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleEndpoint(r); } }}>
+              <div class="flex items-center gap-2 px-2.5 py-1.5 cursor-pointer font-mono text-[0.8em] bg-white/[0.02] hover:bg-white/[0.04]" role="button" tabindex="0" data-testid="schema-endpoint-{key}" onclick={() => toggleEndpoint(r)} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleEndpoint(r); } }}>
                 <span class="chevron" class:open={isOpen}>&#9654;</span>
                 <span class="text-[0.7em] font-semibold px-1.5 py-px rounded-lg uppercase {r.status === 'changed' ? 'bg-yellow/20 text-yellow' : r.status === 'added' || r.status === 'added_in_b' ? 'bg-green/15 text-green' : r.status === 'removed' || r.status === 'removed_from_b' ? 'bg-red/15 text-red' : 'bg-text-dim/15 text-text-dim'}">{r.status.replaceAll('_', ' ')}</span>
                 <span class="font-semibold w-[52px] text-right {r.method.toLowerCase() === 'get' ? 'text-green' : r.method.toLowerCase() === 'post' ? 'text-accent' : r.method.toLowerCase() === 'put' ? 'text-yellow' : r.method.toLowerCase() === 'delete' ? 'text-red' : r.method.toLowerCase() === 'patch' ? 'text-purple' : ''}">{r.method}</span>

@@ -1,3 +1,5 @@
+<!-- src/components/ResultDisplay.svelte -->
+
 <script>
   import DiffView from './DiffView.svelte';
   import { statusLabel, contentLength, buildFullMd } from '../../lib/export.js';
@@ -357,7 +359,7 @@
 {#if r}
   <div class="border-t border-edge {isStale ? 'opacity-75' : ''}">
     <!-- Collapsed summary row -->
-    <div class="flex items-center gap-2.5 px-3 py-2 cursor-pointer select-none text-[0.85em] hover:bg-white/[0.02]" role="button" tabindex="0" onclick={toggleBody} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleBody(); } }}>
+    <div class="flex items-center gap-2.5 px-3 py-2 cursor-pointer select-none text-[0.85em] hover:bg-white/[0.02]" role="button" tabindex="0" data-testid="result-toggle" onclick={toggleBody} onkeydown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleBody(); } }}>
       <span class="chevron text-text-dim text-[0.8em] transition-transform duration-150" class:open={expanded}>&#9654;</span>
       <span class="text-[0.75em] font-semibold px-2 py-0.5 rounded-full uppercase tracking-wider {badgeClasses}">{badgeText}</span>
       <span class="font-mono text-[0.75em] text-text-dim">{metaStatus} {metaSize}</span>
@@ -378,6 +380,7 @@
               {activeTab === tab.id
                 ? 'text-accent border-accent'
                 : 'text-text-dim border-transparent hover:text-text-primary hover:border-edge'}"
+            data-testid="result-tab-{tab.id}"
             onclick={() => setTab(tab.id)}
           >
             {tab.label}
@@ -392,11 +395,11 @@
 
         <!-- Copy menu stays in the tab bar for easy access -->
         <div class="copy-menu relative inline-block ml-auto">
-          <button class="text-[0.7em] text-text-dim cursor-pointer bg-transparent border border-edge px-2 py-1 rounded hover:text-text-primary hover:border-text-dim" onclick={() => copyMenuOpen = !copyMenuOpen}>Copy as...</button>
+          <button class="text-[0.7em] text-text-dim cursor-pointer bg-transparent border border-edge px-2 py-1 rounded hover:text-text-primary hover:border-text-dim" data-testid="btn-copy-menu" onclick={() => copyMenuOpen = !copyMenuOpen}>Copy as...</button>
           {#if copyMenuOpen}
             <div class="absolute bottom-full right-0 bg-surface border border-edge rounded-md p-1 z-20 min-w-[180px] mb-1 shadow-[0_8px_24px_rgba(0,0,0,0.4)]">
-              <button class="block w-full text-left bg-transparent border-none text-text-primary px-2.5 py-1.5 rounded text-[0.8em] font-mono cursor-pointer whitespace-nowrap hover:bg-white/5" onclick={(e) => copyFullMd(e.currentTarget)}>Full result (markdown)</button>
-              <button class="block w-full text-left bg-transparent border-none text-text-primary px-2.5 py-1.5 rounded text-[0.8em] font-mono cursor-pointer whitespace-nowrap hover:bg-white/5" onclick={(e) => copyFullJson(e.currentTarget)}>Full result (json)</button>
+              <button class="block w-full text-left bg-transparent border-none text-text-primary px-2.5 py-1.5 rounded text-[0.8em] font-mono cursor-pointer whitespace-nowrap hover:bg-white/5" data-testid="btn-copy-full-md" onclick={(e) => copyFullMd(e.currentTarget)}>Full result (markdown)</button>
+              <button class="block w-full text-left bg-transparent border-none text-text-primary px-2.5 py-1.5 rounded text-[0.8em] font-mono cursor-pointer whitespace-nowrap hover:bg-white/5" data-testid="btn-copy-full-json" onclick={(e) => copyFullJson(e.currentTarget)}>Full result (json)</button>
             </div>
           {/if}
         </div>
@@ -413,12 +416,12 @@
         {#if activeTab === 'bodies'}
           <div class="grid grid-cols-2 gap-3">
             <div class="relative group bg-bg p-2 rounded-md">
-              <button class="absolute top-1 right-1 bg-surface border border-edge text-text-dim text-[0.65em] font-mono px-1.5 py-0.5 rounded cursor-pointer opacity-0 group-hover:opacity-70 hover:opacity-100 hover:text-text-primary hover:border-text-dim z-5 leading-snug" onclick={(e) => clipCopy(fmtBody(r.response_a.body, r.response_a), e.currentTarget)}>copy</button>
+              <button class="absolute top-1 right-1 bg-surface border border-edge text-text-dim text-[0.65em] font-mono px-1.5 py-0.5 rounded cursor-pointer opacity-0 group-hover:opacity-70 hover:opacity-100 hover:text-text-primary hover:border-text-dim z-5 leading-snug" data-testid="btn-copy-body-a" onclick={(e) => clipCopy(fmtBody(r.response_a.body, r.response_a), e.currentTarget)}>copy</button>
               <div class="text-[0.7em] text-text-dim uppercase tracking-wider mb-1">{getEnvA()?.name || 'Environment A'} ({r.response_a.status || 'ERR'})</div>
               <div class="font-mono text-[0.75em] whitespace-pre-wrap max-h-[300px] overflow-y-auto">{@html highlightedBody(r.response_a.body, r.response_a)}</div>
             </div>
             <div class="relative group bg-bg p-2 rounded-md">
-              <button class="absolute top-1 right-1 bg-surface border border-edge text-text-dim text-[0.65em] font-mono px-1.5 py-0.5 rounded cursor-pointer opacity-0 group-hover:opacity-70 hover:opacity-100 hover:text-text-primary hover:border-text-dim z-5 leading-snug" onclick={(e) => clipCopy(fmtBody(r.response_b.body, r.response_b), e.currentTarget)}>copy</button>
+              <button class="absolute top-1 right-1 bg-surface border border-edge text-text-dim text-[0.65em] font-mono px-1.5 py-0.5 rounded cursor-pointer opacity-0 group-hover:opacity-70 hover:opacity-100 hover:text-text-primary hover:border-text-dim z-5 leading-snug" data-testid="btn-copy-body-b" onclick={(e) => clipCopy(fmtBody(r.response_b.body, r.response_b), e.currentTarget)}>copy</button>
               <div class="text-[0.7em] text-text-dim uppercase tracking-wider mb-1">{getEnvB()?.name || 'Environment B'} ({r.response_b.status || 'ERR'})</div>
               <div class="font-mono text-[0.75em] whitespace-pre-wrap max-h-[300px] overflow-y-auto">{@html highlightedBody(r.response_b.body, r.response_b)}</div>
             </div>
@@ -427,7 +430,7 @@
           <!-- Request body (if present) -->
           {#if reqBodyFmt}
             <div class="relative group font-mono text-[0.75em] bg-bg p-2.5 rounded-md overflow-x-auto whitespace-pre-wrap mt-3 max-h-[400px] overflow-y-auto border-l-2 border-accent/30">
-              <button class="absolute top-1 right-1 bg-surface border border-edge text-text-dim text-[0.65em] font-mono px-1.5 py-0.5 rounded cursor-pointer opacity-0 group-hover:opacity-70 hover:opacity-100 hover:text-text-primary hover:border-text-dim z-5 leading-snug" onclick={(e) => clipCopy(reqBodyFmt.text, e.currentTarget)}>copy</button>
+              <button class="absolute top-1 right-1 bg-surface border border-edge text-text-dim text-[0.65em] font-mono px-1.5 py-0.5 rounded cursor-pointer opacity-0 group-hover:opacity-70 hover:opacity-100 hover:text-text-primary hover:border-text-dim z-5 leading-snug" data-testid="btn-copy-request-body" onclick={(e) => clipCopy(reqBodyFmt.text, e.currentTarget)}>copy</button>
               <div class="text-[0.7em] text-text-dim uppercase tracking-wider mb-1">Request Body <span class="text-[0.85em] text-text-dim normal-case tracking-normal">({r.request_content_type || 'query'})</span></div>
               <div class="font-mono text-[0.75em] whitespace-pre-wrap max-h-[300px] overflow-y-auto text-text-dim">{@html reqBodyFmt.html}</div>
             </div>
@@ -440,6 +443,7 @@
             <!-- Task 2: Compact summary line, click to expand -->
             <button
               class="w-full flex items-center gap-2 px-3 py-2 bg-accent/[0.04] text-left cursor-pointer border-none hover:bg-accent/[0.07] transition-colors duration-100"
+              data-testid="btn-expand-headers"
               onclick={() => reqHeadersExpanded = !reqHeadersExpanded}
             >
               <span class="chevron text-text-dim text-[0.7em] transition-transform duration-150" class:open={reqHeadersExpanded}>&#9654;</span>
@@ -451,12 +455,12 @@
               <div class="font-mono text-[0.75em] bg-accent/[0.02] p-2.5 overflow-x-auto whitespace-pre-wrap max-h-[400px] overflow-y-auto">
                 <div class="grid grid-cols-2 gap-3">
                   <div class="relative group">
-                    <button class="absolute top-1 right-1 bg-surface border border-edge text-text-dim text-[0.65em] font-mono px-1.5 py-0.5 rounded cursor-pointer opacity-0 group-hover:opacity-70 hover:opacity-100 hover:text-text-primary hover:border-text-dim z-5 leading-snug" onclick={(e) => clipCopy(formatReqHeaders(r, 'a'), e.currentTarget)}>copy</button>
+                    <button class="absolute top-1 right-1 bg-surface border border-edge text-text-dim text-[0.65em] font-mono px-1.5 py-0.5 rounded cursor-pointer opacity-0 group-hover:opacity-70 hover:opacity-100 hover:text-text-primary hover:border-text-dim z-5 leading-snug" data-testid="btn-copy-req-headers-a" onclick={(e) => clipCopy(formatReqHeaders(r, 'a'), e.currentTarget)}>copy</button>
                     <div class="text-[0.7em] text-text-dim uppercase tracking-wider mb-1">Request to {getEnvA()?.name || 'A'}</div>
                     <div class="text-text-dim">{formatReqHeaders(r, 'a')}</div>
                   </div>
                   <div class="relative group">
-                    <button class="absolute top-1 right-1 bg-surface border border-edge text-text-dim text-[0.65em] font-mono px-1.5 py-0.5 rounded cursor-pointer opacity-0 group-hover:opacity-70 hover:opacity-100 hover:text-text-primary hover:border-text-dim z-5 leading-snug" onclick={(e) => clipCopy(formatReqHeaders(r, 'b'), e.currentTarget)}>copy</button>
+                    <button class="absolute top-1 right-1 bg-surface border border-edge text-text-dim text-[0.65em] font-mono px-1.5 py-0.5 rounded cursor-pointer opacity-0 group-hover:opacity-70 hover:opacity-100 hover:text-text-primary hover:border-text-dim z-5 leading-snug" data-testid="btn-copy-req-headers-b" onclick={(e) => clipCopy(formatReqHeaders(r, 'b'), e.currentTarget)}>copy</button>
                     <div class="text-[0.7em] text-text-dim uppercase tracking-wider mb-1">Request to {getEnvB()?.name || 'B'}</div>
                     <div class="text-text-dim">{formatReqHeaders(r, 'b')}</div>
                   </div>
@@ -488,11 +492,12 @@
                 {/if}
                 <button
                   class="ml-auto text-[0.7em] text-accent cursor-pointer bg-transparent border border-edge px-2 py-0.5 rounded hover:border-text-dim hover:text-text-primary transition-colors duration-100"
+                  data-testid="btn-toggle-response-headers"
                   onclick={() => showAllRespHeaders = !showAllRespHeaders}
                 >
                   {showAllRespHeaders ? 'Show deltas only' : 'Show all'}
                 </button>
-                <button class="text-[0.65em] font-mono text-text-dim cursor-pointer bg-transparent border border-edge px-1.5 py-0.5 rounded hover:text-text-primary hover:border-text-dim leading-snug" onclick={(e) => {
+                <button class="text-[0.65em] font-mono text-text-dim cursor-pointer bg-transparent border border-edge px-1.5 py-0.5 rounded hover:text-text-primary hover:border-text-dim leading-snug" data-testid="btn-copy-response-headers" onclick={(e) => {
                   const text = fmtRespHeaders(r.response_a) + '\n---\n' + fmtRespHeaders(r.response_b);
                   clipCopy(text, e.currentTarget);
                 }}>copy</button>
@@ -606,7 +611,7 @@
         <!-- ════════ RAW TAB ════════ -->
         {#if activeTab === 'raw'}
           <div class="relative group font-mono text-[0.75em] bg-bg p-2.5 rounded-md overflow-x-auto whitespace-pre-wrap max-h-[400px] overflow-y-auto text-text-dim">
-            <button class="absolute top-1 right-1 bg-surface border border-edge text-text-dim text-[0.65em] font-mono px-1.5 py-0.5 rounded cursor-pointer opacity-0 group-hover:opacity-70 hover:opacity-100 hover:text-text-primary hover:border-text-dim z-5 leading-snug" onclick={(e) => clipCopy(JSON.stringify(r.diff, null, 2), e.currentTarget)}>copy</button>
+            <button class="absolute top-1 right-1 bg-surface border border-edge text-text-dim text-[0.65em] font-mono px-1.5 py-0.5 rounded cursor-pointer opacity-0 group-hover:opacity-70 hover:opacity-100 hover:text-text-primary hover:border-text-dim z-5 leading-snug" data-testid="btn-copy-raw-diff" onclick={(e) => clipCopy(JSON.stringify(r.diff, null, 2), e.currentTarget)}>copy</button>
             <div class="text-[0.7em] text-text-dim uppercase tracking-wider mb-2">Raw Diff JSON</div>
             <div>{@html highlightJson(JSON.stringify(r.diff, null, 2))}</div>
           </div>

@@ -1,3 +1,5 @@
+// src/stores/session.svelte.js
+
 import { apiConfig, apiListEnvironments, apiCreateEnvironment, apiUpdateEnvironment, apiDeleteEnvironment } from '../../lib/api.js';
 import { encryptBlob, decryptBlob } from '../lib/crypto.js';
 import { getEncKey } from './auth.svelte.js';

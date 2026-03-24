@@ -1,4 +1,4 @@
-# drift-detector/tests/test_store.py
+# tests/test_store.py
 
 """
 Tests for store.py functions, with focus on diff_testruns and _normalize_path.

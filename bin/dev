@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+# bin/dev - Overmind Development Runner
+#
+# USAGE:
+#   $ bin/dev                       # Start backend + frontend
+#   $ bin/dev --port=5899           # Override port (also: -p 5899 or PORT=5899 bin/dev)
+#
+# ENVIRONMENT:
+#   HOST_A    Target API version A (default: http://localhost:10235)
+#   HOST_B    Target API version B (default: http://localhost:10240)
+#
+# WINDOW MODES:
+#   Main Window (bin/dev): Pure log stream. Bird's-eye view of all processes.
+#                          Non-interactive (Ctrl+C kills everything).
+#   Connect Mode:          Interactive TTY. Run in a separate terminal tab to
+#                          access debuggers or restart services.
+#
+# -----------------------------------------------------------------------------
+# CONTROL COMMANDS (New Terminal Tab)
+# -----------------------------------------------------------------------------
+#   $ overmind connect <name>       # Open interactive TTY (backend|frontend)
+#   $ overmind restart <name>       # Restart a specific process
+#   $ overmind stop <name>          # Kill a specific process
+#
+# -----------------------------------------------------------------------------
+# CONNECT MODE SHORTCUTS (Inside 'overmind connect')
+# -----------------------------------------------------------------------------
+#   Ctrl+b, d                       # Detach (Return to shell, process keeps running)
+#   r                               # Restart the process you are connected to
+#   q                               # Quit connection (Process keeps running)
+# -----------------------------------------------------------------------------
+
+if ! command -v overmind >/dev/null 2>&1; then
+  echo "Error: Overmind not found. Install from https://github.com/DarthSim/overmind"
+  exit 1
+fi
+
+# Parse arguments
+PROCFILE="Procfile"
+PORT_OVERRIDE=""
+ARGS=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --port=*|-p=*)
+      PORT_OVERRIDE="${1#*=}"
+      shift
+      ;;
+    --port|-p)
+      if [[ -z "$2" || "$2" == -* ]]; then
+        echo "Error: '$1' requires a port value." >&2
+        exit 1
+      fi
+      PORT_OVERRIDE="$2"
+      shift 2
+      ;;
+    *)
+      ARGS+=("$1")
+      shift
+      ;;
+  esac
+done
+
+# Source .env if present
+if [ -f .env ]; then
+  set -a
+  source .env
+  set +a
+fi
+
+# Default port is the Vite dev server port (what users visit)
+PORT="${PORT_OVERRIDE:-${PORT:-5899}}"
+
+exec env PORT="$PORT" overmind start -f "$PROCFILE" "${ARGS[@]}"

@@ -1,4 +1,4 @@
-# drift-detector/dd/compare.py
+# dd/compare.py
 
 """
 Compare routes: single endpoint compare, batch compare, host connectivity test.
