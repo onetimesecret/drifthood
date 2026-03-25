@@ -750,6 +750,189 @@ class TestExtractExampleBody:
         result = extract_example_body(schema, spec)
         assert "name=gizmo" in result
 
+    # -- for_json parameter tests --
+
+    def test_for_json_nested_objects_as_dicts(self):
+        """for_json=True returns nested objects as proper JSON dicts."""
+        schema = {
+            "type": "object",
+            "example": {"user": {"name": "Alice", "age": 30}, "active": True},
+        }
+        result = extract_example_body(schema, {}, for_json=True)
+        parsed = json.loads(result)
+        assert parsed == {"user": {"name": "Alice", "age": 30}, "active": True}
+        assert isinstance(parsed["user"], dict)
+        assert parsed["user"]["name"] == "Alice"
+
+    def test_for_json_arrays_as_lists(self):
+        """for_json=True returns arrays as proper JSON lists."""
+        schema = {
+            "type": "object",
+            "example": {"tags": ["a", "b", "c"], "ids": [1, 2, 3]},
+        }
+        result = extract_example_body(schema, {}, for_json=True)
+        parsed = json.loads(result)
+        assert isinstance(parsed["tags"], list)
+        assert parsed["tags"] == ["a", "b", "c"]
+        assert isinstance(parsed["ids"], list)
+        assert parsed["ids"] == [1, 2, 3]
+
+    def test_for_json_booleans_as_bool_type(self):
+        """for_json=True returns booleans as bool type (not 'true'/'false' strings)."""
+        schema = {
+            "type": "object",
+            "example": {"enabled": True, "deleted": False},
+        }
+        result = extract_example_body(schema, {}, for_json=True)
+        parsed = json.loads(result)
+        assert parsed["enabled"] is True
+        assert parsed["deleted"] is False
+        assert isinstance(parsed["enabled"], bool)
+        assert isinstance(parsed["deleted"], bool)
+
+    def test_for_json_numbers_as_numeric_types(self):
+        """for_json=True returns numbers as numeric types (not strings)."""
+        schema = {
+            "type": "object",
+            "example": {"count": 42, "price": 19.99, "zero": 0},
+        }
+        result = extract_example_body(schema, {}, for_json=True)
+        parsed = json.loads(result)
+        assert parsed["count"] == 42
+        assert isinstance(parsed["count"], int)
+        assert parsed["price"] == 19.99
+        assert isinstance(parsed["price"], float)
+        assert parsed["zero"] == 0
+
+    def test_for_json_false_returns_form_encoded(self):
+        """for_json=False (default) returns form-encoded strings."""
+        schema = {
+            "type": "object",
+            "example": {"name": "Alice", "age": 30},
+        }
+        # Default (for_json=False)
+        result = extract_example_body(schema, {})
+        assert "name=Alice" in result
+        assert "age=30" in result
+        assert "&" in result
+        # Explicit for_json=False
+        result2 = extract_example_body(schema, {}, for_json=False)
+        assert result2 == result
+
+    def test_for_json_property_based_types(self):
+        """for_json=True infers proper types from property schemas without examples."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "label": {"type": "string"},
+                "count": {"type": "integer"},
+                "price": {"type": "number"},
+                "active": {"type": "boolean"},
+                "items": {"type": "array"},
+                "meta": {"type": "object"},
+            },
+        }
+        result = extract_example_body(schema, {}, for_json=True)
+        parsed = json.loads(result)
+        assert parsed["label"] == "test"
+        assert isinstance(parsed["label"], str)
+        assert parsed["count"] == 0
+        assert isinstance(parsed["count"], int)
+        assert parsed["price"] == 0.0
+        assert isinstance(parsed["price"], float)
+        assert parsed["active"] is True
+        assert isinstance(parsed["active"], bool)
+        assert parsed["items"] == []
+        assert isinstance(parsed["items"], list)
+        assert parsed["meta"] == {}
+        assert isinstance(parsed["meta"], dict)
+
+    def test_for_json_nested_object_recursive(self):
+        """for_json=True recursively extracts nested objects from properties."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "address": {
+                    "type": "object",
+                    "properties": {
+                        "city": {"type": "string", "example": "NYC"},
+                        "zip": {"type": "integer", "example": 10001},
+                    },
+                },
+            },
+        }
+        result = extract_example_body(schema, {}, for_json=True)
+        parsed = json.loads(result)
+        assert isinstance(parsed["address"], dict)
+        assert parsed["address"]["city"] == "NYC"
+        assert parsed["address"]["zip"] == 10001
+
+    def test_form_encoded_nested_object_recursive(self):
+        """for_json=False (form-encoded) recursively extracts nested objects with bracket notation."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "secret": {
+                    "type": "object",
+                    "properties": {
+                        "value": {"type": "string", "example": "hunter2"},
+                        "ttl": {"type": "integer", "example": 3600},
+                    },
+                },
+                "passphrase": {"type": "string"},
+            },
+        }
+        result = extract_example_body(schema, {}, for_json=False)
+        assert result is not None
+        # Should produce form-encoded with bracket notation
+        assert "secret[value]=hunter2" in result
+        assert "secret[ttl]=3600" in result
+        assert "passphrase=test" in result
+
+    def test_form_encoded_deeply_nested_object(self):
+        """form-encoded handles deeply nested objects with cumulative bracket notation."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "outer": {
+                    "type": "object",
+                    "properties": {
+                        "inner": {
+                            "type": "object",
+                            "properties": {
+                                "value": {"type": "string", "example": "deep"},
+                            },
+                        },
+                    },
+                },
+            },
+        }
+        result = extract_example_body(schema, {}, for_json=False)
+        assert result is not None
+        assert "outer[inner][value]=deep" in result
+
+    def test_form_encoded_number_type(self):
+        """form-encoded handles number type (floats)."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "price": {"type": "number"},
+            },
+        }
+        result = extract_example_body(schema, {}, for_json=False)
+        assert result == "price=0.0"
+
+    def test_form_encoded_array_type(self):
+        """form-encoded handles array type with empty bracket notation."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "tags": {"type": "array"},
+            },
+        }
+        result = extract_example_body(schema, {}, for_json=False)
+        assert result == "tags[]="
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 4. parse_openapi (the main parser)
@@ -1221,6 +1404,93 @@ class TestParseOpenapi:
         assert len(op["path_fields"]) == 1
         assert op["path_fields"][0]["name"] == "item_id"
 
+    # -- Vendor extension tests --
+
+    def test_vendor_extension_route_auth_extracted(self):
+        """x-otto-route-openapi_auth extension is extracted from operations."""
+        spec = {
+            "openapi": "3.0.0",
+            "info": {"title": "Auth Test", "version": "1.0"},
+            "paths": {
+                "/public": {
+                    "get": {
+                        "operationId": "publicEndpoint",
+                        "x-otto-route-openapi_auth": "anonymous",
+                        "responses": {"200": {"description": "OK"}},
+                    },
+                },
+                "/private": {
+                    "post": {
+                        "operationId": "privateEndpoint",
+                        "x-otto-route-openapi_auth": "basic",
+                        "responses": {"200": {"description": "OK"}},
+                    },
+                },
+                "/secure": {
+                    "delete": {
+                        "operationId": "secureEndpoint",
+                        "x-otto-route-openapi_auth": "basic-only",
+                        "responses": {"200": {"description": "OK"}},
+                    },
+                },
+            },
+        }
+        result = parse_openapi(json.dumps(spec))
+        ops = {op["label"]: op for op in result["operations"]}
+
+        assert ops["publicEndpoint"]["route_auth"] == "anonymous"
+        assert ops["privateEndpoint"]["route_auth"] == "basic"
+        assert ops["secureEndpoint"]["route_auth"] == "basic-only"
+
+    def test_vendor_extension_route_scope_extracted(self):
+        """x-otto-route-scope extension is extracted from operations."""
+        spec = {
+            "openapi": "3.0.0",
+            "info": {"title": "Scope Test", "version": "1.0"},
+            "paths": {
+                "/admin/users": {
+                    "get": {
+                        "operationId": "listAdminUsers",
+                        "x-otto-route-scope": "internal",
+                        "responses": {"200": {"description": "OK"}},
+                    },
+                },
+                "/users": {
+                    "get": {
+                        "operationId": "listUsers",
+                        "responses": {"200": {"description": "OK"}},
+                    },
+                },
+            },
+        }
+        result = parse_openapi(json.dumps(spec))
+        ops = {op["label"]: op for op in result["operations"]}
+
+        assert ops["listAdminUsers"]["route_scope"] == "internal"
+        assert ops["listUsers"]["route_scope"] is None
+
+    def test_vendor_extensions_both_present(self):
+        """Both x-otto-route-openapi_auth and x-otto-route-scope can coexist."""
+        spec = {
+            "openapi": "3.0.0",
+            "info": {"title": "Combo Test", "version": "1.0"},
+            "paths": {
+                "/admin/secret": {
+                    "post": {
+                        "operationId": "adminCreateSecret",
+                        "x-otto-route-openapi_auth": "basic-only",
+                        "x-otto-route-scope": "internal",
+                        "responses": {"200": {"description": "OK"}},
+                    },
+                },
+            },
+        }
+        result = parse_openapi(json.dumps(spec))
+        op = result["operations"][0]
+
+        assert op["route_auth"] == "basic-only"
+        assert op["route_scope"] == "internal"
+
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 5. group_operations
@@ -1484,6 +1754,134 @@ class TestEndToEndDiff:
         batch_key = ("POST", "/widgets/batch")
         assert batch_key not in lookup_a
         assert batch_key in lookup_b
+
+    def test_cross_version_type_changes_detected(self, to_json):
+        """Type changes between v2 and v3 specs should be detected via path normalization.
+
+        This validates the core use case: comparing /api/v2/... with /api/v3/... endpoints
+        and detecting structural changes in response schemas (timestamp fields changing
+        from string to number type).
+        """
+        # Simulates v2: timestamps as anyOf[string,null]
+        spec_v2 = {
+            "openapi": "3.0.0",
+            "info": {"title": "Secret API", "version": "v2"},
+            "paths": {
+                "/api/v2/receipt/{identifier}": {
+                    "get": {
+                        "operationId": "getReceipt",
+                        "responses": {
+                            "200": {
+                                "description": "Receipt",
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "type": "object",
+                                            "properties": {
+                                                "shared": {
+                                                    "anyOf": [
+                                                        {"type": "string"},
+                                                        {"type": "null"},
+                                                    ]
+                                                },
+                                                "secret_ttl": {
+                                                    "anyOf": [
+                                                        {"type": "string"},
+                                                        {"type": "null"},
+                                                    ]
+                                                },
+                                            },
+                                        }
+                                    }
+                                },
+                            }
+                        },
+                    }
+                }
+            },
+        }
+
+        # Simulates v3: timestamps as anyOf[number,null]
+        spec_v3 = {
+            "openapi": "3.0.0",
+            "info": {"title": "Secret API", "version": "v3"},
+            "paths": {
+                "/api/v3/receipt/{identifier}": {
+                    "get": {
+                        "operationId": "getReceipt",
+                        "responses": {
+                            "200": {
+                                "description": "Receipt",
+                                "content": {
+                                    "application/json": {
+                                        "schema": {
+                                            "type": "object",
+                                            "properties": {
+                                                "shared": {
+                                                    "anyOf": [
+                                                        {"type": "number"},
+                                                        {"type": "null"},
+                                                    ]
+                                                },
+                                                "secret_ttl": {
+                                                    "anyOf": [
+                                                        {"type": "number"},
+                                                        {"type": "null"},
+                                                    ]
+                                                },
+                                            },
+                                        }
+                                    }
+                                },
+                            }
+                        },
+                    }
+                }
+            },
+        }
+
+        parsed_a = parse_openapi(to_json(spec_v2))
+        parsed_b = parse_openapi(to_json(spec_v3))
+
+        # Build lookups using normalized paths
+        def ops_by_normalized_key(parsed):
+            lookup = {}
+            for op in parsed["operations"]:
+                path_clean = op["path"].split("?")[0]
+                path_normalized = normalize_path_for_diff(path_clean)
+                key = (op["method"], path_normalized)
+                lookup[key] = op
+            return lookup
+
+        lookup_a = ops_by_normalized_key(parsed_a)
+        lookup_b = ops_by_normalized_key(parsed_b)
+
+        # Both should match via normalized path (v2 and v3 paths normalize to same key)
+        key = ("GET", "/receipt/{identifier}")
+        assert key in lookup_a, "v2 endpoint should normalize to /receipt/{identifier}"
+        assert key in lookup_b, "v3 endpoint should normalize to /receipt/{identifier}"
+
+        # Diff response fields for status 200
+        resp_a = lookup_a[key].get("response_fields", {})
+        resp_b = lookup_b[key].get("response_fields", {})
+        resp_diff = diff_response_fields(resp_a, resp_b)
+
+        # Should detect type changes in the response fields
+        assert resp_diff.get("has_changes"), "Should detect field changes"
+
+        # Extract type changes from per_code structure
+        code_diff = resp_diff.get("per_code", {}).get("200", {}).get("diff", {})
+        type_changes = {tc["path"]: tc for tc in code_diff.get("type_changed", [])}
+
+        # shared: anyOf[string,null] -> anyOf[number,null] (resolves to string -> number)
+        assert "shared" in type_changes
+        assert type_changes["shared"]["type_a"] == "string"
+        assert type_changes["shared"]["type_b"] == "number"
+
+        # secret_ttl: same type change
+        assert "secret_ttl" in type_changes
+        assert type_changes["secret_ttl"]["type_a"] == "string"
+        assert type_changes["secret_ttl"]["type_b"] == "number"
 
 
 # ═══════════════════════════════════════════════════════════════════════════

@@ -12,6 +12,11 @@
     editingExtid ? session.environments.find(e => e.extid === editingExtid) : null
   );
 
+  // Debounce saves to avoid encrypt+PUT on every keystroke
+  const DEBOUNCE_MS = 300;
+  let saveTimer = null;
+  let metaSaveTimer = null;
+
   // Convert metadata object to editable rows whenever the selected env changes
   let metaRows = $state([]);
   let lastMetaSyncExtid = null;
@@ -32,14 +37,25 @@
     }
   });
 
-  function syncMetaToStore() {
+  function syncMetaToStore(immediate = false) {
     if (!editingEnv) return;
+    const extid = editingEnv.extid;
     const obj = {};
     for (const row of metaRows) {
       const k = row.key.trim();
       if (k) obj[k] = row.val;
     }
-    saveEnvironment(editingEnv.extid, { metadata: obj });
+
+    if (immediate) {
+      clearTimeout(metaSaveTimer);
+      saveEnvironment(extid, { metadata: obj });
+    } else {
+      // Debounce metadata saves during typing
+      clearTimeout(metaSaveTimer);
+      metaSaveTimer = setTimeout(() => {
+        saveEnvironment(extid, { metadata: obj });
+      }, DEBOUNCE_MS);
+    }
   }
 
   function addMetaRow() {
@@ -51,11 +67,11 @@
     if (metaRows.length === 0) {
       metaRows.push({ key: '', val: '' });
     }
-    syncMetaToStore();
+    syncMetaToStore(true);  // Immediate save on explicit delete action
   }
 
   function handleMetaChange() {
-    syncMetaToStore();
+    syncMetaToStore(false);  // Debounced save during typing
   }
 
   async function handleAdd() {
@@ -81,7 +97,14 @@
 
   function handleFieldChange(field, value) {
     if (!editingEnv) return;
-    saveEnvironment(editingEnv.extid, { [field]: value });
+    // Update local state immediately for responsive UI
+    editingEnv[field] = value;
+    // Debounce the server save
+    const extid = editingEnv.extid;
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(() => {
+      saveEnvironment(extid, { [field]: value });
+    }, DEBOUNCE_MS);
   }
 </script>
 
@@ -197,7 +220,8 @@
               class="bg-surface border border-edge text-text-primary px-2.5 py-1.5 rounded-md font-mono text-[0.85em] w-full"
               id="env-auth"
               data-testid="env-auth-input"
-              type="text"
+              type="password"
+              autocomplete="new-password"
               value={editingEnv.auth}
               oninput={(e) => handleFieldChange('auth', e.target.value)}
               placeholder="user@example.com:TOKEN"

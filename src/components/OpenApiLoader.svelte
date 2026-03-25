@@ -189,6 +189,35 @@
                   />
                   <span class="font-semibold w-[52px] text-right {op.method.toLowerCase() === 'get' ? 'text-green' : op.method.toLowerCase() === 'post' ? 'text-accent' : op.method.toLowerCase() === 'put' ? 'text-yellow' : op.method.toLowerCase() === 'delete' ? 'text-red' : op.method.toLowerCase() === 'patch' ? 'text-purple' : ''}">{op.method}</span>
                   <span class="text-text-primary">{op.path}</span>
+                  {#if op.security?.length}
+                    {@const secTypes = [...new Set(op.security.map(s => s.type))]}
+                    <span class="text-[0.85em] text-text-dim bg-white/[0.05] px-1.5 rounded" title={op.security.map(s => s.name).join(', ')}>
+                      {#if secTypes.includes('http') && secTypes.includes('apiKey')}
+                        &#128274; auth
+                      {:else if secTypes.includes('http')}
+                        &#128274; {op.security[0].scheme || 'http'}
+                      {:else if secTypes.includes('apiKey')}
+                        &#128273; {op.security[0].in || 'key'}
+                      {:else if secTypes.includes('oauth2')}
+                        &#128274; oauth2
+                      {:else}
+                        &#128274; {secTypes[0] || 'auth'}
+                      {/if}
+                    </span>
+                  {:else if op.route_auth}
+                    <span class="text-[0.85em] text-text-dim bg-white/[0.05] px-1.5 rounded" title="x-otto-route-openapi_auth: {op.route_auth}">
+                      {#if op.route_auth === 'anonymous'}
+                        &#127760; anon
+                      {:else if op.route_auth === 'basic' || op.route_auth === 'basic,anonymous'}
+                        &#128274; basic
+                      {:else}
+                        &#128274; {op.route_auth}
+                      {/if}
+                    </span>
+                  {/if}
+                  {#if op.route_scope === 'internal'}
+                    <span class="text-[0.85em] text-yellow bg-yellow/10 px-1.5 rounded" title="internal/admin endpoint">internal</span>
+                  {/if}
                   {#if op.summary}
                     <span class="text-text-dim ml-2 italic">{op.summary}</span>
                   {/if}

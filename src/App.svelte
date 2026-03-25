@@ -489,7 +489,9 @@
   }
 
   async function handleDropHtml(text, filename) {
-    const match = text.match(/var\s+DD_SNAPSHOT\s*=\s*(\{[\s\S]*?\});\s*<\/script>/);
+    // Use greedy match (.*) to capture the full JSON object including nested braces.
+    // The final }; before closing script tag anchors the match correctly.
+    const match = text.match(/var\s+DD_SNAPSHOT\s*=\s*(\{[\s\S]*\});\s*<\/script>/);
     if (!match) {
       showDropToast('No snapshot data found in HTML file', true);
       return;

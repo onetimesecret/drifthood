@@ -291,6 +291,50 @@ def extract_fields(schema: dict, spec: dict, prefix: str = "", _seen: set | None
     return fields
 
 
+def _build_form_parts(props: dict, spec: dict, prefix: str = "") -> list[str]:
+    """Build form-encoded key=value parts, recursing into nested objects.
+
+    Args:
+        props: The properties dict from the schema.
+        spec: The full OpenAPI spec (for resolving $refs).
+        prefix: The current key prefix for nested objects (e.g., "secret" -> "secret[nested]").
+
+    Returns:
+        A list of "key=value" strings.
+    """
+    parts = []
+    for name, prop in props.items():
+        prop = resolve_ref(prop, spec)
+        key = f"{prefix}[{name}]" if prefix else name
+
+        if "example" in prop:
+            parts.append(f"{key}={prop['example']}")
+        elif "default" in prop:
+            parts.append(f"{key}={prop['default']}")
+        else:
+            ptype = normalize_type(prop.get("type"))
+            if ptype == "string":
+                parts.append(f"{key}=test")
+            elif ptype == "integer":
+                parts.append(f"{key}=0")
+            elif ptype == "number":
+                parts.append(f"{key}=0.0")
+            elif ptype == "boolean":
+                parts.append(f"{key}=true")
+            elif ptype == "array":
+                # For arrays, add empty brackets to indicate array
+                parts.append(f"{key}[]=")
+            elif ptype == "object":
+                # Recurse into nested object properties
+                nested_props = prop.get("properties", {})
+                if nested_props:
+                    parts.extend(_build_form_parts(nested_props, spec, prefix=key))
+                else:
+                    # Object with no defined properties
+                    parts.append(f"{key}={{}}")
+    return parts
+
+
 def extract_example_body(schema: dict, spec: dict, *, for_json: bool = False) -> str | None:
     """Best-effort: pull example values from a request body schema.
 
@@ -350,20 +394,8 @@ def extract_example_body(schema: dict, spec: dict, *, for_json: bool = False) ->
                     obj[name] = None
         return json.dumps(obj) if obj else None
 
-    # Legacy form-encoded format
-    parts = []
-    for name, prop in props.items():
-        prop = resolve_ref(prop, spec)
-        if "example" in prop:
-            parts.append(f"{name}={prop['example']}")
-        elif "default" in prop:
-            parts.append(f"{name}={prop['default']}")
-        elif normalize_type(prop.get("type")) == "string":
-            parts.append(f"{name}=test")
-        elif normalize_type(prop.get("type")) == "integer":
-            parts.append(f"{name}=0")
-        elif normalize_type(prop.get("type")) == "boolean":
-            parts.append(f"{name}=true")
+    # Legacy form-encoded format - use helper for recursive handling
+    parts = _build_form_parts(props, spec)
     return "&".join(parts) if parts else None
 
 
@@ -611,6 +643,12 @@ def parse_openapi(raw: str) -> dict:
                             }
                         )
 
+            # Extract vendor extensions for route behavior
+            # x-otto-route-openapi_auth: auth mode (basic, anonymous, basic-only)
+            # x-otto-route-scope: endpoint scope (e.g., "internal" for admin-only)
+            route_auth = op.get("x-otto-route-openapi_auth")
+            route_scope = op.get("x-otto-route-scope")
+
             operations.append(
                 {
                     "method": method.upper(),
@@ -627,6 +665,8 @@ def parse_openapi(raw: str) -> dict:
                     "path_fields": path_fields,
                     "response_fields": response_fields,
                     "security": security_schemes,
+                    "route_auth": route_auth,
+                    "route_scope": route_scope,
                 }
             )
 
