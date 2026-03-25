@@ -20,13 +20,16 @@ from fastapi.testclient import TestClient
 
 from dd.openapi import (
     resolve_ref,
+    resolve_anyof_type,
     extract_fields,
     extract_example_body,
     parse_openapi,
     group_operations,
     diff_operation_fields,
     diff_response_fields,
+    detect_endpoint_renames,
     fields_fingerprint,
+    normalize_path_for_diff,
     router,
 )
 
@@ -117,6 +120,58 @@ class TestResolveRef:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 1b. normalize_path_for_diff
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestNormalizePathForDiff:
+    """Tests for API version prefix normalization in paths."""
+
+    def test_strips_api_v2_prefix(self):
+        """Path like /api/v2/secret/conceal becomes /secret/conceal."""
+        assert normalize_path_for_diff("/api/v2/secret/conceal") == "/secret/conceal"
+
+    def test_strips_api_v3_prefix(self):
+        """Path like /api/v3/secret/conceal becomes /secret/conceal."""
+        assert normalize_path_for_diff("/api/v3/secret/conceal") == "/secret/conceal"
+
+    def test_strips_v1_prefix(self):
+        """Path like /v1/users becomes /users."""
+        assert normalize_path_for_diff("/v1/users") == "/users"
+
+    def test_strips_v2_prefix(self):
+        """Path like /v2/items becomes /items."""
+        assert normalize_path_for_diff("/v2/items") == "/items"
+
+    def test_strips_minor_version(self):
+        """Path like /api/v2.1/resource becomes /resource."""
+        assert normalize_path_for_diff("/api/v2.1/resource") == "/resource"
+
+    def test_preserves_non_versioned_path(self):
+        """Path without version prefix is unchanged."""
+        assert normalize_path_for_diff("/api/status") == "/api/status"
+
+    def test_preserves_version_in_middle(self):
+        """v2 in the middle of path is not stripped."""
+        assert normalize_path_for_diff("/api/versions/v2/info") == "/api/versions/v2/info"
+
+    def test_case_insensitive(self):
+        """Version prefix matching is case-insensitive."""
+        assert normalize_path_for_diff("/API/V2/test") == "/test"
+
+    def test_empty_path_after_version(self):
+        """Path that is only a version prefix becomes /."""
+        assert normalize_path_for_diff("/api/v1/") == "/"
+        assert normalize_path_for_diff("/api/v1") == "/"
+
+    def test_cross_version_matching(self):
+        """Different versions of same endpoint should normalize to same path."""
+        v2_path = normalize_path_for_diff("/api/v2/secret/conceal")
+        v3_path = normalize_path_for_diff("/api/v3/secret/conceal")
+        assert v2_path == v3_path == "/secret/conceal"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 2. extract_fields
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -194,6 +249,81 @@ class TestExtractFields:
         fields = extract_fields(schema, {})
         ttl_field = next(f for f in fields if f["name"] == "ttl")
         assert ttl_field["type"] == "integer"
+
+    def test_nested_anyof_resolves_inner_type(self):
+        """Nested anyOf[anyOf[array,string], null] should resolve to array (not null)."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "recipients": {
+                    "anyOf": [
+                        {"anyOf": [{"type": "array"}, {"type": "string"}]},  # inner anyOf, no direct type
+                        {"type": "null"},
+                    ]
+                }
+            },
+        }
+        fields = extract_fields(schema, {})
+        recipients = next(f for f in fields if f["name"] == "recipients")
+        assert recipients["type"] == "array", f"Expected 'array', got '{recipients['type']}'"
+
+    def test_deeply_nested_anyof_three_levels(self):
+        """Three levels of nested anyOf should resolve correctly."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "anyOf": [
+                        {
+                            "anyOf": [
+                                {"anyOf": [{"type": "object"}, {"type": "array"}]},
+                                {"type": "string"},
+                            ]
+                        },
+                        {"type": "null"},
+                    ]
+                }
+            },
+        }
+        fields = extract_fields(schema, {})
+        data = next(f for f in fields if f["name"] == "data")
+        # Should find 'object' (first non-null type in deepest anyOf)
+        assert data["type"] == "object", f"Expected 'object', got '{data['type']}'"
+
+    def test_anyof_all_null_returns_string_fallback(self):
+        """anyOf where all branches are null returns string fallback."""
+        # resolve_anyof_type should return "string" as fallback when no non-null type found
+        prop = {"anyOf": [{"type": "null"}, {"type": "null"}]}
+        result_type, _ = resolve_anyof_type(prop, {})
+        assert result_type == "string", f"Expected 'string' fallback, got '{result_type}'"
+
+    def test_anyof_skips_null_prefers_typed(self):
+        """anyOf with null first should skip to the typed branch."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "kind": {
+                    "anyOf": [
+                        {"type": "null"},  # null first
+                        {"type": "boolean"},  # typed second
+                    ]
+                }
+            },
+        }
+        fields = extract_fields(schema, {})
+        kind = next(f for f in fields if f["name"] == "kind")
+        assert kind["type"] == "boolean", f"Expected 'boolean', got '{kind['type']}'"
+
+    def test_resolve_anyof_type_direct_call(self):
+        """Direct call to resolve_anyof_type with nested anyOf."""
+        prop = {
+            "anyOf": [
+                {"anyOf": [{"type": "integer"}, {"type": "number"}]},
+                {"type": "null"},
+            ]
+        }
+        result_type, result_prop = resolve_anyof_type(prop, {})
+        assert result_type == "integer", f"Expected 'integer', got '{result_type}'"
 
     def test_enum_values_extracted(self):
         schema = {
@@ -362,6 +492,184 @@ class TestExtractFields:
         by_name = {f["name"]: f for f in fields}
         assert by_name["current_field"]["deprecated"] is False
         assert by_name["explicitly_not_deprecated"]["deprecated"] is False
+
+    def test_array_items_object_extracted(self):
+        """Arrays with object items should recurse into item properties."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "records": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "integer"},
+                            "label": {"type": "string"},
+                        },
+                    },
+                },
+            },
+        }
+        fields = extract_fields(schema, {})
+        paths = [f["path"] for f in fields]
+        assert "records" in paths
+        assert "records[].id" in paths
+        assert "records[].label" in paths
+
+        # The records field should be marked as nested
+        records_field = next(f for f in fields if f["name"] == "records")
+        assert records_field["nested"] is True
+        assert records_field["type"] == "array"
+
+    def test_array_items_via_ref(self):
+        """Array items defined via $ref should also be extracted."""
+        spec = {
+            "components": {
+                "schemas": {
+                    "Item": {
+                        "type": "object",
+                        "properties": {
+                            "sku": {"type": "string"},
+                            "qty": {"type": "integer"},
+                        },
+                    },
+                }
+            }
+        }
+        schema = {
+            "type": "object",
+            "properties": {
+                "items": {
+                    "type": "array",
+                    "items": {"$ref": "#/components/schemas/Item"},
+                },
+            },
+        }
+        fields = extract_fields(schema, spec)
+        paths = [f["path"] for f in fields]
+        assert "items" in paths
+        assert "items[].sku" in paths
+        assert "items[].qty" in paths
+
+    def test_array_items_primitive_not_nested(self):
+        """Arrays of primitives should not be marked as nested."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                },
+            },
+        }
+        fields = extract_fields(schema, {})
+        assert len(fields) == 1
+        assert fields[0]["name"] == "tags"
+        assert fields[0]["nested"] is False
+        assert fields[0]["type"] == "array"
+
+    def test_nested_array_of_objects(self):
+        """Deeply nested arrays of objects should be extracted."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "data": {
+                    "type": "object",
+                    "properties": {
+                        "rows": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "value": {"type": "number"},
+                                },
+                            },
+                        },
+                    },
+                },
+            },
+        }
+        fields = extract_fields(schema, {})
+        paths = [f["path"] for f in fields]
+        assert "data" in paths
+        assert "data.rows" in paths
+        assert "data.rows[].value" in paths
+
+    def test_additional_properties_typed(self):
+        """additionalProperties with a schema should create a synthetic [*] field."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "name": {"type": "string"},
+            },
+            "additionalProperties": {"type": "string"},
+        }
+        fields = extract_fields(schema, {})
+        names = [f["name"] for f in fields]
+        assert "name" in names
+        assert "[*]" in names
+        add_field = next(f for f in fields if f["name"] == "[*]")
+        assert add_field["type"] == "string"
+        assert add_field["additional_properties"] is True
+
+    def test_additional_properties_true(self):
+        """additionalProperties: true should create a synthetic [*] field with type 'any'."""
+        schema = {
+            "type": "object",
+            "additionalProperties": True,
+        }
+        fields = extract_fields(schema, {})
+        assert len(fields) == 1
+        assert fields[0]["name"] == "[*]"
+        assert fields[0]["type"] == "any"
+        assert fields[0]["additional_properties"] is True
+
+    def test_additional_properties_with_anyof(self):
+        """additionalProperties with anyOf should resolve to the correct type."""
+        schema = {
+            "type": "object",
+            "additionalProperties": {
+                "anyOf": [
+                    {"type": "boolean"},
+                    {"type": "number"},
+                    {"type": "string"},
+                ]
+            },
+        }
+        fields = extract_fields(schema, {})
+        assert len(fields) == 1
+        add_field = fields[0]
+        assert add_field["name"] == "[*]"
+        # Should pick first non-null type from anyOf
+        assert add_field["type"] == "boolean"
+        assert add_field["additional_properties"] is True
+
+    def test_no_properties_with_additional_properties(self):
+        """Schema with only additionalProperties (no properties) should extract."""
+        schema = {
+            "type": "object",
+            "additionalProperties": {"type": "integer"},
+        }
+        fields = extract_fields(schema, {})
+        assert len(fields) == 1
+        assert fields[0]["name"] == "[*]"
+        assert fields[0]["type"] == "integer"
+
+    def test_nested_additional_properties(self):
+        """additionalProperties in nested object should use proper path prefix."""
+        schema = {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "object",
+                    "additionalProperties": {"type": "string"},
+                },
+            },
+        }
+        fields = extract_fields(schema, {})
+        paths = [f["path"] for f in fields]
+        assert "config" in paths
+        assert "config.[*]" in paths
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -1179,6 +1487,74 @@ class TestEndToEndDiff:
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# 8b. Endpoint Rename Detection
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestEndpointRenameDetection:
+    """Tests for endpoint-level rename detection."""
+
+    def test_similar_path_rename_detected(self):
+        """Endpoints with similar paths should be flagged as possible renames."""
+        removed = [
+            {"method": "GET", "path": "/private/recent"},
+            {"method": "GET", "path": "/private/{identifier}"},
+        ]
+        added = [
+            {"method": "GET", "path": "/receipt/recent"},
+            {"method": "GET", "path": "/receipt/{identifier}"},
+        ]
+        renames = detect_endpoint_renames(removed, added)
+        assert len(renames) == 2
+
+        # Check that private/recent -> receipt/recent is detected
+        recent_rename = next(r for r in renames if "recent" in r["old_path"])
+        assert recent_rename["old_path"] == "/private/recent"
+        assert recent_rename["new_path"] == "/receipt/recent"
+        assert recent_rename["similarity"] >= 0.4
+
+    def test_same_method_required(self):
+        """Renames should only be suggested for same HTTP method."""
+        removed = [{"method": "GET", "path": "/items"}]
+        added = [{"method": "POST", "path": "/items"}]
+        renames = detect_endpoint_renames(removed, added)
+        assert len(renames) == 0
+
+    def test_best_match_wins(self):
+        """Each removed endpoint should match at most one added endpoint."""
+        removed = [{"method": "GET", "path": "/users/list"}]
+        added = [
+            {"method": "GET", "path": "/members/list"},
+            {"method": "GET", "path": "/accounts/list"},
+        ]
+        renames = detect_endpoint_renames(removed, added)
+        # Should only return one rename (the best match)
+        assert len(renames) == 1
+
+    def test_no_rename_for_dissimilar_paths(self):
+        """Dissimilar paths should not produce rename suggestions."""
+        removed = [{"method": "DELETE", "path": "/admin/purge"}]
+        added = [{"method": "DELETE", "path": "/files/upload"}]
+        renames = detect_endpoint_renames(removed, added)
+        assert len(renames) == 0
+
+    def test_empty_inputs(self):
+        """Empty inputs should return empty list."""
+        assert detect_endpoint_renames([], []) == []
+        assert detect_endpoint_renames([{"method": "GET", "path": "/test"}], []) == []
+        assert detect_endpoint_renames([], [{"method": "GET", "path": "/test"}]) == []
+
+    def test_matching_last_segment_boosts_similarity(self):
+        """Endpoints with matching last segments should have higher similarity."""
+        removed = [{"method": "POST", "path": "/v1/secrets/burn"}]
+        added = [{"method": "POST", "path": "/v2/receipts/burn"}]
+        renames = detect_endpoint_renames(removed, added)
+        assert len(renames) == 1
+        # Last segment "burn" matches, so similarity should be boosted
+        assert renames[0]["similarity"] >= 0.4
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # 9. Circular $ref handling
 # ═══════════════════════════════════════════════════════════════════════════
 
@@ -1208,21 +1584,50 @@ class TestCircularRef:
 
 
 class TestOpenAPIRoutes:
-    """Test the FastAPI routes for parse-openapi and diff-schemas."""
+    """Test the FastAPI routes for parse-openapi and diff-schemas.
+
+    These routes now require authentication to prevent SSRF attacks.
+    """
+
+    @pytest.fixture(autouse=True)
+    def use_temp_db(self, monkeypatch, tmp_path):
+        """Use a temporary database for each test."""
+        db_path = str(tmp_path / "test_openapi_routes.db")
+        monkeypatch.setattr("dd.config.DB_PATH", db_path)
+        monkeypatch.setattr("dd.config.DB_DRIVER", "sqlite")
+        import dd.store as store_module
+        monkeypatch.setattr(store_module, "DB_PATH", db_path)
+        monkeypatch.setattr(store_module, "DB_DRIVER", "sqlite")
+        monkeypatch.setattr(store_module, "DB_AUTH_TOKEN", None)
+        store_module.init_db()
+        yield db_path
 
     @pytest.fixture
     def client(self):
-        """Create a minimal FastAPI app with just the openapi router."""
+        """Create a FastAPI app with both auth and openapi routers."""
         from fastapi import FastAPI
+        from dd.auth import router as auth_router
         app = FastAPI()
+        app.include_router(auth_router)
         app.include_router(router)
         return TestClient(app)
 
+    def _get_auth_header(self, client):
+        """Create a session and return the auth header."""
+        from dd.auth import derive_auth_key
+        resp = client.post("/api/auth/token")
+        token = resp.json()["token"]
+        extid = resp.json()["extid"]
+        auth_key = derive_auth_key(token, extid)
+        return {"Authorization": f"Bearer {auth_key}"}
+
     def test_parse_openapi_file_upload(self, client, openapi30_spec):
+        auth = self._get_auth_header(client)
         spec_bytes = json.dumps(openapi30_spec).encode("utf-8")
         response = client.post(
             "/api/parse-openapi",
             files={"file": ("spec.json", io.BytesIO(spec_bytes), "application/json")},
+            headers=auth,
         )
         assert response.status_code == 200
         data = response.json()
@@ -1231,10 +1636,12 @@ class TestOpenAPIRoutes:
         assert data["total_operations"] > 0
 
     def test_parse_openapi_yaml_upload(self, client, openapi30_spec):
+        auth = self._get_auth_header(client)
         yaml_bytes = yaml.dump(openapi30_spec).encode("utf-8")
         response = client.post(
             "/api/parse-openapi",
             files={"file": ("spec.yaml", io.BytesIO(yaml_bytes), "text/yaml")},
+            headers=auth,
         )
         assert response.status_code == 200
         data = response.json()
@@ -1243,6 +1650,7 @@ class TestOpenAPIRoutes:
 
     @patch("dd.openapi.req.get")
     def test_parse_openapi_from_url(self, mock_get, client, openapi30_spec):
+        auth = self._get_auth_header(client)
         mock_response = MagicMock()
         mock_response.text = json.dumps(openapi30_spec)
         mock_response.raise_for_status = MagicMock()
@@ -1251,6 +1659,7 @@ class TestOpenAPIRoutes:
         response = client.post(
             "/api/parse-openapi",
             data={"url": "https://example.com/openapi.json"},
+            headers=auth,
         )
         assert response.status_code == 200
         data = response.json()
@@ -1260,10 +1669,12 @@ class TestOpenAPIRoutes:
 
     @patch("dd.openapi.req.get")
     def test_parse_openapi_url_fetch_failure(self, mock_get, client):
+        auth = self._get_auth_header(client)
         mock_get.side_effect = Exception("Connection refused")
         response = client.post(
             "/api/parse-openapi",
             data={"url": "https://unreachable.example.com/spec.json"},
+            headers=auth,
         )
         assert response.status_code == 200  # returns error in body, not HTTP error
         data = response.json()
@@ -1271,23 +1682,27 @@ class TestOpenAPIRoutes:
         assert "Connection refused" in data["error"]
 
     def test_parse_openapi_no_input(self, client):
-        response = client.post("/api/parse-openapi")
+        auth = self._get_auth_header(client)
+        response = client.post("/api/parse-openapi", headers=auth)
         assert response.status_code == 200
         data = response.json()
         assert "error" in data
         assert "file upload or a URL" in data["error"]
 
     def test_parse_openapi_invalid_content(self, client):
+        auth = self._get_auth_header(client)
         bad_bytes = b"<html>Not an API</html>"
         response = client.post(
             "/api/parse-openapi",
             files={"file": ("bad.html", io.BytesIO(bad_bytes), "text/html")},
+            headers=auth,
         )
         assert response.status_code == 200
         data = response.json()
         assert "error" in data
 
     def test_diff_schemas_file_upload(self, client, spec_pair_for_diff):
+        auth = self._get_auth_header(client)
         base, updated = spec_pair_for_diff
         base_bytes = json.dumps(base).encode("utf-8")
         updated_bytes = json.dumps(updated).encode("utf-8")
@@ -1298,6 +1713,7 @@ class TestOpenAPIRoutes:
                 "file_a": ("base.json", io.BytesIO(base_bytes), "application/json"),
                 "file_b": ("updated.json", io.BytesIO(updated_bytes), "application/json"),
             },
+            headers=auth,
         )
         assert response.status_code == 200
         data = response.json()
@@ -1307,6 +1723,7 @@ class TestOpenAPIRoutes:
         assert data["summary"]["total_endpoints"] > 0
 
     def test_diff_schemas_detects_changes(self, client, spec_pair_for_diff):
+        auth = self._get_auth_header(client)
         base, updated = spec_pair_for_diff
         base_bytes = json.dumps(base).encode("utf-8")
         updated_bytes = json.dumps(updated).encode("utf-8")
@@ -1317,6 +1734,7 @@ class TestOpenAPIRoutes:
                 "file_a": ("base.json", io.BytesIO(base_bytes), "application/json"),
                 "file_b": ("updated.json", io.BytesIO(updated_bytes), "application/json"),
             },
+            headers=auth,
         )
         data = response.json()
         summary = data["summary"]
@@ -1328,6 +1746,7 @@ class TestOpenAPIRoutes:
         assert summary["removed"] >= 1
 
     def test_diff_schemas_identical_specs(self, client, openapi30_spec):
+        auth = self._get_auth_header(client)
         spec_bytes = json.dumps(openapi30_spec).encode("utf-8")
         response = client.post(
             "/api/diff-schemas",
@@ -1335,6 +1754,7 @@ class TestOpenAPIRoutes:
                 "file_a": ("a.json", io.BytesIO(spec_bytes), "application/json"),
                 "file_b": ("b.json", io.BytesIO(spec_bytes), "application/json"),
             },
+            headers=auth,
         )
         data = response.json()
         assert data["summary"]["changed"] == 0
@@ -1343,18 +1763,21 @@ class TestOpenAPIRoutes:
         assert data["summary"]["identical"] == data["summary"]["total_endpoints"]
 
     def test_diff_schemas_missing_spec_b(self, client, openapi30_spec):
+        auth = self._get_auth_header(client)
         spec_bytes = json.dumps(openapi30_spec).encode("utf-8")
         response = client.post(
             "/api/diff-schemas",
             files={
                 "file_a": ("a.json", io.BytesIO(spec_bytes), "application/json"),
             },
+            headers=auth,
         )
         data = response.json()
         assert "error" in data
 
     @patch("dd.openapi.req.get")
     def test_diff_schemas_from_urls(self, mock_get, client, spec_pair_for_diff):
+        auth = self._get_auth_header(client)
         base, updated = spec_pair_for_diff
         responses = [
             MagicMock(text=json.dumps(base), raise_for_status=MagicMock()),
@@ -1368,12 +1791,14 @@ class TestOpenAPIRoutes:
                 "url_a": "https://example.com/base.json",
                 "url_b": "https://example.com/updated.json",
             },
+            headers=auth,
         )
         data = response.json()
         assert "error" not in data
         assert data["summary"]["total_endpoints"] > 0
 
     def test_diff_schemas_invalid_spec_a(self, client, openapi30_spec):
+        auth = self._get_auth_header(client)
         bad_bytes = b"not valid json or yaml!@#$"
         good_bytes = json.dumps(openapi30_spec).encode("utf-8")
         response = client.post(
@@ -1382,6 +1807,7 @@ class TestOpenAPIRoutes:
                 "file_a": ("bad.json", io.BytesIO(bad_bytes), "application/json"),
                 "file_b": ("good.json", io.BytesIO(good_bytes), "application/json"),
             },
+            headers=auth,
         )
         data = response.json()
         assert "error" in data

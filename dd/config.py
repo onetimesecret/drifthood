@@ -33,11 +33,23 @@ PORT = int(os.environ.get("DD_PORT", "8899"))
 # Set DD_VERIFY_SSL=0 to skip certificate verification (e.g. self-signed certs behind Caddy)
 VERIFY_SSL = os.environ.get("DD_VERIFY_SSL", "1") not in ("0", "false", "no")
 
+# ── CORS ──
+# Comma-separated list of allowed origins, e.g. "http://localhost:5899,https://mydomain.com"
+# Defaults to allowing localhost dev ports. Set DD_CORS_ORIGINS="*" to allow all (insecure).
+_cors_env = os.environ.get("DD_CORS_ORIGINS", "http://localhost:5899,http://127.0.0.1:5899")
+CORS_ORIGINS: list[str] = [o.strip() for o in _cors_env.split(",") if o.strip()]
+
 # ── Default environments ──
 DEFAULT_ENVIRONMENTS = [
     {"id": "default-a", "name": "Host A", "baseUrl": HOST_A, "auth": "", "memo": "", "metadata": {}},
     {"id": "default-b", "name": "Host B", "baseUrl": HOST_B, "auth": "", "memo": "", "metadata": {}},
 ]
+
+# ── Payload limits ──
+# Max size for state JSON in bytes (default 1MB)
+MAX_STATE_SIZE = int(os.environ.get("DD_MAX_STATE_SIZE", str(1024 * 1024)))
+# Max size for encrypted blob in bytes (default 2MB)
+MAX_BLOB_SIZE = int(os.environ.get("DD_MAX_BLOB_SIZE", str(2 * 1024 * 1024)))
 
 # ── Comparison defaults ──
 # Fields expected to differ between instances (add as you discover them)

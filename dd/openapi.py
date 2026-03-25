@@ -18,8 +18,9 @@ from difflib import SequenceMatcher
 
 import requests as req
 import yaml
-from fastapi import APIRouter, File, Form, UploadFile
+from fastapi import APIRouter, File, Form, Request, UploadFile
 
+from dd.auth import get_session_hash
 from dd.config import TEMPORAL_FORMATS
 
 logger = logging.getLogger(__name__)
@@ -43,6 +44,36 @@ def normalize_type(type_value, default: str = "string") -> str:
     if isinstance(type_value, str):
         return type_value
     return default
+
+
+import re
+
+# Pattern to match API version prefixes like /api/v1/, /api/v2/, /v1/, /v2/, etc.
+# Also handles /api/v{major}.{minor}/ patterns.
+_VERSION_PREFIX_PATTERN = re.compile(
+    r'^(/api)?/v\d+(\.\d+)?(/|$)',
+    re.IGNORECASE
+)
+
+
+def normalize_path_for_diff(path: str) -> str:
+    """Normalize path by stripping version prefixes for cross-version comparison.
+
+    Converts paths like:
+    - /api/v2/secret/conceal -> /secret/conceal
+    - /api/v3/secret/conceal -> /secret/conceal
+    - /v1/users -> /users
+    - /v2.0/items -> /items
+
+    This allows matching semantically equivalent endpoints across different
+    API versions for field-level diff comparison.
+    """
+    # Strip version prefix, preserving the rest of the path
+    normalized = _VERSION_PREFIX_PATTERN.sub('/', path)
+    # Clean up any double slashes
+    while '//' in normalized:
+        normalized = normalized.replace('//', '/')
+    return normalized
 
 
 def resolve_ref(obj: dict, spec: dict, _seen: set | None = None) -> dict:
@@ -82,16 +113,54 @@ def resolve_ref(obj: dict, spec: dict, _seen: set | None = None) -> dict:
     return node
 
 
-def extract_fields(schema: dict, spec: dict, prefix: str = "") -> list[dict]:
+def resolve_anyof_type(prop: dict, spec: dict) -> tuple[str, dict]:
+    """Resolve anyOf to find the most specific non-null type.
+
+    Returns (type_string, merged_prop_dict). Handles nested anyOf by
+    recursing when a branch has no direct 'type' but contains inner anyOf.
+    Skips 'null' type branches to find the actual content type.
+    """
+    if "anyOf" not in prop:
+        return normalize_type(prop.get("type", "string")), prop
+
+    for branch in prop["anyOf"]:
+        branch = resolve_ref(branch, spec)
+        # Skip null branches
+        if branch.get("type") == "null":
+            continue
+        # Direct type found - use it
+        if branch.get("type"):
+            return normalize_type(branch["type"]), {**prop, **branch}
+        # Nested anyOf - recurse into it
+        if "anyOf" in branch:
+            inner_type, inner_prop = resolve_anyof_type(branch, spec)
+            if inner_type != "null":
+                return inner_type, {**prop, **inner_prop}
+
+    # Fallback: no non-null type found
+    return "string", prop
+
+
+def extract_fields(schema: dict, spec: dict, prefix: str = "", _seen: set | None = None) -> list[dict]:
     """Walk a schema and return a flat list of field descriptors.
 
     Each field: {name, path, type, required, example, enum, const, min, max,
                  nested, description, format, drift_ignore}
     Nested objects get flattened with dot-separated paths so the UI can render them
-    as grouped inputs (secret.kind, secret.ttl, etc.)."""
+    as grouped inputs (secret.kind, secret.ttl, etc.).
+
+    Array fields with object items are also recursed into, with paths like
+    records[].field_name to indicate the array item structure."""
     if not schema:
         return []
+    if _seen is None:
+        _seen = set()
     schema = resolve_ref(schema, spec)
+    # Track $ref to detect circular references
+    schema_ref = id(schema)
+    if schema_ref in _seen:
+        return []
+    _seen = _seen | {schema_ref}  # Copy to allow sibling branches
 
     # allOf: merge all sub-schemas' properties and required arrays, then
     # overlay any top-level properties (valid extension pattern in OpenAPI).
@@ -116,21 +185,21 @@ def extract_fields(schema: dict, spec: dict, prefix: str = "") -> list[dict]:
                 break
 
     props = schema.get("properties", {})
-    if not props:
+    additional_props = schema.get("additionalProperties")
+
+    # If no properties and no additionalProperties, nothing to extract
+    if not props and not additional_props:
         return []
+
     required_set = set(schema.get("required", []))
     fields = []
     for name, prop in props.items():
         prop = resolve_ref(prop, spec)
         path = f"{prefix}{name}" if not prefix else f"{prefix}.{name}"
         ftype = normalize_type(prop.get("type", "string"))
-        # anyOf: pick the most specific branch
+        # anyOf: pick the most specific non-null type (handles nested anyOf)
         if "anyOf" in prop:
-            for branch in prop["anyOf"]:
-                if branch.get("type"):
-                    ftype = normalize_type(branch["type"])
-                    prop = {**prop, **branch}
-                    break
+            ftype, prop = resolve_anyof_type(prop, spec)
         fmt = prop.get("format", "")
         # Detect fields that should be auto-ignored in drift comparison
         drift_ignore = bool(
@@ -155,19 +224,84 @@ def extract_fields(schema: dict, spec: dict, prefix: str = "") -> list[dict]:
                 field["min"] = prop["minimum"]
             if "maximum" in prop:
                 field["max"] = prop["maximum"]
-        # Recurse into nested objects
-        if ftype == "object" and prop.get("properties"):
+        # Recurse into nested objects (with properties or additionalProperties)
+        if ftype == "object" and (prop.get("properties") or prop.get("additionalProperties")):
             field["nested"] = True
             fields.append(field)
-            fields.extend(extract_fields(prop, spec, path))
+            fields.extend(extract_fields(prop, spec, path, _seen))
+        # Recurse into array items that are objects
+        elif ftype == "array" and prop.get("items"):
+            items_schema = resolve_ref(prop.get("items", {}), spec)
+            if items_schema.get("type") == "object" and items_schema.get("properties"):
+                field["nested"] = True
+                fields.append(field)
+                # Use [] suffix to indicate array item fields
+                array_path = f"{path}[]"
+                fields.extend(extract_fields(items_schema, spec, array_path, _seen))
+            else:
+                field["nested"] = False
+                fields.append(field)
         else:
             field["nested"] = False
             fields.append(field)
+
+    # Handle additionalProperties: create a synthetic field to indicate dynamic keys
+    if additional_props and additional_props is not True:
+        # additionalProperties can be True (any type) or a schema (typed)
+        additional_props = resolve_ref(additional_props, spec)
+        add_type = normalize_type(additional_props.get("type", "any"))
+        # Handle anyOf in additionalProperties
+        if "anyOf" in additional_props:
+            add_type, additional_props = resolve_anyof_type(additional_props, spec)
+        add_path = f"{prefix}[*]" if not prefix else f"{prefix}.[*]"
+        fields.append({
+            "name": "[*]",
+            "path": add_path,
+            "type": add_type,
+            "required": False,
+            "example": additional_props.get("example"),
+            "enum": additional_props.get("enum"),
+            "const": None,
+            "description": "Dynamic additional properties",
+            "format": additional_props.get("format", ""),
+            "drift_ignore": False,
+            "deprecated": False,
+            "nested": False,
+            "additional_properties": True,
+        })
+    elif additional_props is True:
+        # additionalProperties: true means any type allowed
+        add_path = f"{prefix}[*]" if not prefix else f"{prefix}.[*]"
+        fields.append({
+            "name": "[*]",
+            "path": add_path,
+            "type": "any",
+            "required": False,
+            "example": None,
+            "enum": None,
+            "const": None,
+            "description": "Dynamic additional properties (any type)",
+            "format": "",
+            "drift_ignore": False,
+            "deprecated": False,
+            "nested": False,
+            "additional_properties": True,
+        })
+
     return fields
 
 
-def extract_example_body(schema: dict, spec: dict) -> str | None:
-    """Best-effort: pull example values from a request body schema into a form string or JSON."""
+def extract_example_body(schema: dict, spec: dict, *, for_json: bool = False) -> str | None:
+    """Best-effort: pull example values from a request body schema.
+
+    Args:
+        schema: The schema dict to extract examples from.
+        spec: The full OpenAPI spec (for resolving $refs).
+        for_json: If True, return JSON string. If False, return form-encoded string.
+
+    Returns:
+        A body hint string (JSON or form-encoded), or None if no examples found.
+    """
     if not schema:
         return None
 
@@ -175,6 +309,10 @@ def extract_example_body(schema: dict, spec: dict) -> str | None:
 
     if "example" in schema:
         ex = schema["example"]
+        if for_json:
+            # Return as JSON string, preserving nested structure
+            return json.dumps(ex)
+        # Legacy form-encoded format
         if isinstance(ex, dict):
             return "&".join(f"{k}={v}" for k, v in ex.items())
         return str(ex)
@@ -183,6 +321,36 @@ def extract_example_body(schema: dict, spec: dict) -> str | None:
     if not props:
         return None
 
+    if for_json:
+        # Build a dict with proper types for JSON
+        obj = {}
+        for name, prop in props.items():
+            prop = resolve_ref(prop, spec)
+            if "example" in prop:
+                obj[name] = prop["example"]
+            elif "default" in prop:
+                obj[name] = prop["default"]
+            else:
+                ptype = normalize_type(prop.get("type"))
+                if ptype == "string":
+                    obj[name] = "test"
+                elif ptype == "integer":
+                    obj[name] = 0
+                elif ptype == "number":
+                    obj[name] = 0.0
+                elif ptype == "boolean":
+                    obj[name] = True
+                elif ptype == "array":
+                    obj[name] = []
+                elif ptype == "object":
+                    # Recursively extract nested object
+                    nested = extract_example_body(prop, spec, for_json=True)
+                    obj[name] = json.loads(nested) if nested else {}
+                else:
+                    obj[name] = None
+        return json.dumps(obj) if obj else None
+
+    # Legacy form-encoded format
     parts = []
     for name, prop in props.items():
         prop = resolve_ref(prop, spec)
@@ -289,19 +457,19 @@ def parse_openapi(raw: str) -> dict:
                 content = req_body.get("content", {})
                 if "application/json" in content:
                     schema = content["application/json"].get("schema", {})
-                    body_hint = extract_example_body(schema, spec)
+                    body_hint = extract_example_body(schema, spec, for_json=True)
                     content_type = "application/json"
                     fields = extract_fields(schema, spec)
                 elif "application/x-www-form-urlencoded" in content:
                     schema = content["application/x-www-form-urlencoded"].get(
                         "schema", {}
                     )
-                    body_hint = extract_example_body(schema, spec)
+                    body_hint = extract_example_body(schema, spec, for_json=False)
                     content_type = "application/x-www-form-urlencoded"
                     fields = extract_fields(schema, spec)
                 elif "multipart/form-data" in content:
                     schema = content["multipart/form-data"].get("schema", {})
-                    body_hint = extract_example_body(schema, spec)
+                    body_hint = extract_example_body(schema, spec, for_json=False)
                     content_type = "multipart/form-data"
                     fields = extract_fields(schema, spec)
 
@@ -332,7 +500,7 @@ def parse_openapi(raw: str) -> dict:
                     )
                 elif param.get("in") == "body":
                     schema = param.get("schema", {})
-                    body_hint = extract_example_body(schema, spec)
+                    body_hint = extract_example_body(schema, spec, for_json=True)
                     content_type = "application/json"
                     if not fields:
                         fields = extract_fields(schema, spec)
@@ -644,14 +812,93 @@ def diff_response_fields(
     return {"per_code": per_code, "has_changes": has_changes}
 
 
+def detect_endpoint_renames(
+    removed: list[dict], added: list[dict]
+) -> list[dict]:
+    """Detect possible endpoint renames using path similarity.
+
+    Uses the same best-match algorithm as field rename detection:
+    each removed endpoint can only match one added endpoint, and
+    vice versa, to avoid false positives.
+
+    Args:
+        removed: List of endpoints removed from spec B (have method and path)
+        added: List of endpoints added in spec B (have method and path)
+
+    Returns:
+        List of possible renames with similarity scores.
+    """
+    # Only consider same-method pairs as potential renames
+    candidates: list[tuple[dict, dict, float]] = []
+
+    for r in removed:
+        for a in added:
+            # Must be same HTTP method
+            if r["method"] != a["method"]:
+                continue
+
+            # Compare path segments for similarity
+            r_path = r["path"].lstrip("/")
+            a_path = a["path"].lstrip("/")
+
+            # Path similarity using SequenceMatcher
+            similarity = SequenceMatcher(None, r_path.lower(), a_path.lower()).ratio()
+
+            # Also consider segment-based matching (private/recent -> receipt/recent)
+            r_segments = r_path.split("/")
+            a_segments = a_path.split("/")
+
+            # Boost similarity if last segment matches (likely same resource action)
+            if r_segments and a_segments and r_segments[-1] == a_segments[-1]:
+                similarity = min(1.0, similarity + 0.2)
+
+            # Require minimum similarity threshold
+            if similarity >= 0.4:
+                candidates.append((r, a, similarity))
+
+    # Sort by similarity descending, claim strongest matches first
+    candidates.sort(key=lambda x: x[2], reverse=True)
+
+    claimed_removed: set[tuple] = set()
+    claimed_added: set[tuple] = set()
+    possible_renames = []
+
+    for r, a, similarity in candidates:
+        r_key = (r["method"], r["path"])
+        a_key = (a["method"], a["path"])
+
+        if r_key in claimed_removed or a_key in claimed_added:
+            continue
+
+        claimed_removed.add(r_key)
+        claimed_added.add(a_key)
+
+        possible_renames.append({
+            "old_method": r["method"],
+            "old_path": r["path"],
+            "new_method": a["method"],
+            "new_path": a["path"],
+            "similarity": round(similarity, 2),
+        })
+
+    return possible_renames
+
+
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 @router.post("/api/parse-openapi")
 async def parse_openapi_upload(
-    file: UploadFile = File(None), url: str = Form(None)
+    request: Request,
+    file: UploadFile = File(None),
+    url: str = Form(None),
 ):
-    """Parse an OpenAPI spec from file upload or URL."""
+    """Parse an OpenAPI spec from file upload or URL.
+
+    Requires authentication to prevent SSRF attacks where unauthenticated
+    callers could use the server to fetch arbitrary URLs.
+    """
+    get_session_hash(request)  # Require valid session token; raises 401 if missing
     raw = None
     if file:
         raw = (await file.read()).decode("utf-8")
@@ -674,12 +921,18 @@ async def parse_openapi_upload(
 
 @router.post("/api/diff-schemas")
 async def diff_schemas(
+    request: Request,
     file_a: UploadFile = File(None),
     file_b: UploadFile = File(None),
     url_a: str = Form(None),
     url_b: str = Form(None),
 ):
-    """Diff request schemas between two OpenAPI specs."""
+    """Diff request schemas between two OpenAPI specs.
+
+    Requires authentication to prevent SSRF attacks where unauthenticated
+    callers could use the server to fetch arbitrary URLs.
+    """
+    get_session_hash(request)  # Require valid session token; raises 401 if missing
     specs = {}
     for label, f, u in [("a", file_a, url_a), ("b", file_b, url_b)]:
         raw = None
@@ -702,11 +955,19 @@ async def diff_schemas(
     spec_a, spec_b = specs["a"], specs["b"]
 
     def ops_by_key(spec):
+        """Build lookup from normalized (method, path) to operation.
+
+        Uses normalize_path_for_diff to strip version prefixes, allowing
+        cross-version endpoint matching (e.g., /api/v2/x matches /api/v3/x).
+        """
         lookup = {}
         for op in spec["operations"]:
             path_clean = op["path"].split("?")[0]
-            key = (op["method"], path_clean)
-            lookup[key] = op
+            # Normalize path for cross-version matching
+            path_normalized = normalize_path_for_diff(path_clean)
+            key = (op["method"], path_normalized)
+            # Store original path for display purposes
+            lookup[key] = {**op, "_original_path": path_clean}
         return lookup
 
     lookup_a = ops_by_key(spec_a)
@@ -715,15 +976,20 @@ async def diff_schemas(
 
     results = []
     for key in all_keys:
-        method, path = key
+        method, path_normalized = key
         op_a = lookup_a.get(key)
         op_b = lookup_b.get(key)
+
+        # Use original path from ops (prefer A's path, fall back to B's)
+        display_path_a = op_a["_original_path"] if op_a else None
+        display_path_b = op_b["_original_path"] if op_b else None
 
         if op_a and not op_b:
             results.append(
                 {
                     "method": method,
-                    "path": path,
+                    "path": display_path_a,
+                    "path_normalized": path_normalized,
                     "status": "removed_from_b",
                     "fields_a": op_a.get("fields", []),
                     "fields_b": [],
@@ -734,7 +1000,8 @@ async def diff_schemas(
             results.append(
                 {
                     "method": method,
-                    "path": path,
+                    "path": display_path_b,
+                    "path_normalized": path_normalized,
                     "status": "added_in_b",
                     "fields_a": [],
                     "fields_b": op_b.get("fields", []),
@@ -758,7 +1025,10 @@ async def diff_schemas(
             results.append(
                 {
                     "method": method,
-                    "path": path,
+                    # Show both original paths when they differ (cross-version match)
+                    "path": display_path_a,
+                    "path_b": display_path_b if display_path_b != display_path_a else None,
+                    "path_normalized": path_normalized,
                     "status": "changed" if has_changes else "identical",
                     "fields_a": fields_a,
                     "fields_b": fields_b,
@@ -769,6 +1039,11 @@ async def diff_schemas(
                 }
             )
 
+    # Detect possible endpoint renames
+    removed_endpoints = [r for r in results if r["status"] == "removed_from_b"]
+    added_endpoints = [r for r in results if r["status"] == "added_in_b"]
+    possible_endpoint_renames = detect_endpoint_renames(removed_endpoints, added_endpoints)
+
     summary = {
         "spec_a": f"{spec_a['title']} {spec_a['version']}",
         "spec_b": f"{spec_b['title']} {spec_b['version']}",
@@ -777,5 +1052,10 @@ async def diff_schemas(
         "added": sum(1 for r in results if r["status"] == "added_in_b"),
         "removed": sum(1 for r in results if r["status"] == "removed_from_b"),
         "identical": sum(1 for r in results if r["status"] == "identical"),
+        "possible_renames": len(possible_endpoint_renames),
     }
-    return {"summary": summary, "results": results}
+    return {
+        "summary": summary,
+        "results": results,
+        "possible_endpoint_renames": possible_endpoint_renames,
+    }

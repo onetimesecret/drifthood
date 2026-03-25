@@ -7,10 +7,13 @@ All external references use UUIDv7 extids. Integer primary keys
 and foreign keys are stripped from API responses.
 """
 
+import json
+
 from fastapi import APIRouter, HTTPException, Request
 
 import dd.store as store
 from dd.auth import get_session_hash
+from dd.config import MAX_STATE_SIZE, MAX_BLOB_SIZE
 from dd.extid import externalize
 
 router = APIRouter()
@@ -55,6 +58,34 @@ async def save_testrun(payload: dict, request: Request):
     endpoint_count = payload.get("endpointCount")
     drift_count = payload.get("driftCount")
     ok_count = payload.get("okCount")
+
+    # Verify ownership when updating an existing testrun
+    if testrun_extid:
+        existing = store.get_active_testrun_by_extid(testrun_extid)
+        if existing:
+            doc = store.get_document(existing["document_id"])
+            if not doc or doc.get("session_hash") != session_hash:
+                raise HTTPException(status_code=403, detail="Not authorized to update this testrun")
+
+    # Verify ownership when appending to an existing document
+    if document_extid:
+        doc = store.get_document_by_extid(document_extid)
+        if not doc or doc.get("session_hash") != session_hash:
+            raise HTTPException(status_code=403, detail="Not authorized to modify this document")
+
+    # Validate payload sizes to prevent DB bloat
+    state_size = len(json.dumps(state)) if state else 0
+    if state_size > MAX_STATE_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"State too large: {state_size} bytes exceeds {MAX_STATE_SIZE} byte limit",
+        )
+    if encrypted_blob and len(encrypted_blob) > MAX_BLOB_SIZE:
+        raise HTTPException(
+            status_code=413,
+            detail=f"Blob too large: {len(encrypted_blob)} bytes exceeds {MAX_BLOB_SIZE} byte limit",
+        )
+
     result = store.save(
         state,
         document_extid=document_extid,
@@ -130,7 +161,7 @@ async def get_testrun(doc_extid: str, testrun_extid: str, request: Request):
     doc = store.get_document_by_extid(doc_extid)
     if not doc or doc.get("session_hash") != session_hash:
         raise HTTPException(status_code=404, detail="Document not found")
-    testrun = store.get_testrun_by_extid(testrun_extid)
+    testrun = store.get_active_testrun_by_extid(testrun_extid)
     if not testrun or testrun["document_id"] != doc["id"]:
         raise HTTPException(status_code=404, detail="Testrun not found")
     return {"testrun": _ext_testrun(testrun)}
@@ -143,7 +174,7 @@ async def delete_testrun(doc_extid: str, testrun_extid: str, request: Request):
     doc = store.get_document_by_extid(doc_extid)
     if not doc or doc.get("session_hash") != session_hash:
         raise HTTPException(status_code=404, detail="Document not found")
-    testrun = store.get_testrun_by_extid(testrun_extid)
+    testrun = store.get_active_testrun_by_extid(testrun_extid)
     if not testrun or testrun["document_id"] != doc["id"]:
         raise HTTPException(status_code=404, detail="Testrun not found")
     ok = store.soft_delete_testrun_by_extid(testrun_extid)

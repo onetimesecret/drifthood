@@ -12,9 +12,10 @@ from typing import Optional
 
 import requests as req
 from deepdiff import DeepDiff
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from pydantic import BaseModel
 
+from dd.auth import get_session_hash
 from dd.config import DEFAULT_ENVIRONMENTS, DEFAULT_IGNORE, HOST_A, HOST_B, VERIFY_SSL, TEMPORAL_FORMATS, derive_ignore_paths
 
 router = APIRouter()
@@ -68,6 +69,12 @@ class BatchRequest(BaseModel):
 # ---------------------------------------------------------------------------
 # HTTP client
 # ---------------------------------------------------------------------------
+
+# Allowed HTTP methods - prevents SSRF-adjacent attacks via CONNECT or other
+# unusual methods that could be used to tunnel or probe internal networks
+ALLOWED_METHODS = frozenset({"GET", "POST", "PUT", "DELETE", "PATCH", "HEAD", "OPTIONS"})
+
+
 def hit(
     host: str,
     method: str,
@@ -76,6 +83,20 @@ def hit(
     content_type: str,
     auth: str | None,
 ) -> dict:
+    # Validate method to prevent SSRF-adjacent attacks
+    method_upper = method.upper()
+    if method_upper not in ALLOWED_METHODS:
+        return {
+            "status": None,
+            "headers": {},
+            "body": None,
+            "error": f"Method '{method}' not allowed. Allowed: {', '.join(sorted(ALLOWED_METHODS))}",
+            "elapsed_ms": None,
+            "request_headers": {},
+            "request_url": None,
+            "request_body": None,
+        }
+
     url = f"{host}{path}"
     headers = {}
     data = None
@@ -109,7 +130,7 @@ def hit(
 
     try:
         r = req.request(
-            method,
+            method_upper,
             url,
             data=data,
             json=json_body,
@@ -502,8 +523,13 @@ async def get_config():
 
 
 @router.post("/api/test-host")
-async def test_host(payload: dict):
-    """Quick connectivity test: hit GET on the host root or /api/v1/status."""
+async def test_host(request: Request, payload: dict):
+    """Quick connectivity test: hit GET on the host root or /api/v1/status.
+
+    Requires authentication to prevent SSRF attacks where unauthenticated
+    callers could use the server as a proxy to probe internal networks.
+    """
+    get_session_hash(request)  # Require valid session token; raises 401 if missing
     host = (payload.get("host") or "").strip()
     auth = (payload.get("auth") or "").strip()
     if not host:
@@ -518,14 +544,26 @@ async def test_host(payload: dict):
 
 
 @router.post("/api/compare")
-async def compare_single(cr: CompareRequest):
+async def compare_single(request: Request, cr: CompareRequest):
+    """Compare API responses between host_a and host_b.
+
+    Requires authentication to prevent SSRF attacks where unauthenticated
+    callers could use the server to probe internal networks via host_a/host_b.
+    """
+    get_session_hash(request)  # Require valid session token; raises 401 if missing
     host_a = (cr.host_a or "").strip() or HOST_A
     host_b = (cr.host_b or "").strip() or HOST_B
     return do_compare(host_a, host_b, cr, None)
 
 
 @router.post("/api/batch")
-async def compare_batch(batch: BatchRequest):
+async def compare_batch(request: Request, batch: BatchRequest):
+    """Batch compare multiple endpoints between host_a and host_b.
+
+    Requires authentication to prevent SSRF attacks where unauthenticated
+    callers could use the server to probe internal networks via host_a/host_b.
+    """
+    get_session_hash(request)  # Require valid session token; raises 401 if missing
     host_a = (batch.host_a or "").strip() or HOST_A
     host_b = (batch.host_b or "").strip() or HOST_B
     results = []

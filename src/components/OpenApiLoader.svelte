@@ -92,8 +92,11 @@
     if (!sel.length) return;
     clearEndpointsLocal();
     for (const op of sel) {
+      // Body is now returned as proper JSON from the backend when content_type is application/json.
+      // Legacy form-encoded fallback: convert key=value&key2=value2 to JSON only if body
+      // looks like form data (contains & but doesn't start with { or [)
       let body = op.body || '';
-      if (op.content_type === 'application/json' && body && body.includes('=')) {
+      if (op.content_type === 'application/json' && body && !body.trim().startsWith('{') && !body.trim().startsWith('[') && body.includes('=')) {
         try {
           const obj = {};
           body.split('&').forEach(pair => {

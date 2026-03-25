@@ -15,6 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from dd.auth import router as auth_router
 from dd.compare import router as compare_router
+from dd.config import CORS_ORIGINS
 from dd.documents import router as documents_router
 from dd.endpoints_api import router as endpoints_router
 from dd.environments import router as environments_router
@@ -31,9 +32,10 @@ def create_app(dist_dir: str | None = None) -> FastAPI:
     app = FastAPI(title="Drift Detector")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["*"],
-        allow_methods=["*"],
-        allow_headers=["*"],
+        allow_origins=CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["Authorization", "Content-Type"],
     )
 
     # ── API routers ──

@@ -128,6 +128,16 @@
     try {
       // Mark testrun as public before sharing
       await apiSetTestrunPublic(documents.currentTestrunExtid, true);
+      // navigator.clipboard is undefined on HTTP (non-secure context)
+      if (!navigator.clipboard) {
+        console.warn('Clipboard API unavailable (requires HTTPS)');
+        shareButtonText = 'HTTPS required';
+        if (shareButtonTimeout) clearTimeout(shareButtonTimeout);
+        shareButtonTimeout = setTimeout(() => {
+          shareButtonText = 'Share';
+        }, 3000);
+        return;
+      }
       await navigator.clipboard.writeText(shareUrl);
       shareButtonText = 'Copied';
       if (shareButtonTimeout) clearTimeout(shareButtonTimeout);

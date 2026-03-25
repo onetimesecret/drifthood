@@ -43,10 +43,8 @@
       expanded.add(docExtid);
       ui.expandedDocs = new Set(expanded);
       await loadTestrunsForDoc(docExtid);
-      const testruns = testrunsByDoc[docExtid];
-      if (testruns?.length) {
-        loadTestrun(docExtid, testruns[0].extid, testruns[0].testrun_number);
-      }
+      // Don't auto-load first testrun - let user explicitly click one.
+      // Auto-loading overwrites current work without confirmation.
     }
   }
 

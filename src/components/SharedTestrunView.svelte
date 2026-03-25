@@ -54,7 +54,8 @@
   }
 
   // Derived state
-  let isEncrypted = $derived(testrun?.encrypted_blob && !testrun?.state);
+  // Check for encrypted blob with no meaningful state data (empty object {} is truthy)
+  let isEncrypted = $derived(testrun?.encrypted_blob && !testrun?.state?.endpoints?.length);
   let endpoints = $derived(testrun?.state?.endpoints ?? []);
   let endpointCounts = $derived(computeEndpointCounts(endpoints));
 

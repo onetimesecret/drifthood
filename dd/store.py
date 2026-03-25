@@ -505,9 +505,8 @@ def create_testrun(
     drift_count: int | None = None,
     ok_count: int | None = None,
 ) -> dict:
-    assert testrun_type in ("save", "autosave"), (
-        f"Invalid testrun_type: {testrun_type}"
-    )
+    if testrun_type not in ("save", "autosave"):
+        raise ValueError(f"Invalid testrun_type: {testrun_type}")
     now = _now()
     extid = uuid7()
     state_hash = _hash_state(state)
