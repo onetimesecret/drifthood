@@ -27,6 +27,7 @@ Then use overmind commands to start the backend and frontend:
 ```bash
 overmind restart backend   # Starts FastAPI backend on :8899
 overmind restart frontend   # Starts Vite dev server on :5899 (proxies /api to :8899)
+overmind status
 ```
 
 ### Manually
