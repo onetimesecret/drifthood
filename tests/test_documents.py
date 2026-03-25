@@ -621,3 +621,573 @@ class TestDiffRouteSecurity:
         )
         # Should fail - either 401 (unauthorized) or 422/404 (validation/not found)
         assert response.status_code in (401, 404, 422)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# GET/DELETE testrun endpoint security tests
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestTestrunEndpointSecurity:
+    """Security tests for GET/DELETE testrun endpoints.
+
+    CRITICAL: These tests verify that soft-deleted testruns return 404 when
+    accessed via GET or DELETE endpoints. This prevents information disclosure
+    and ensures idempotent delete behavior.
+
+    Endpoints tested:
+    - GET /api/documents/{doc_extid}/testruns/{testrun_extid}
+    - DELETE /api/documents/{doc_extid}/testruns/{testrun_extid}
+    """
+
+    @staticmethod
+    def _make_auth_header(token: str) -> dict:
+        """Create Authorization header from a raw token."""
+        return {"Authorization": f"Bearer {token}"}
+
+    @staticmethod
+    def _hash_token(token: str) -> str:
+        """Hash a token for storage (matches dd.auth.hash_token)."""
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    def test_get_active_testrun_returns_200(self, client, store, sample_testrun_state, clean_db):
+        """GET testrun should return 200 for active (non-deleted) testruns."""
+        token = "test_token_get_active"
+        session_hash = self._hash_token(token)
+
+        result = store.save(
+            sample_testrun_state,
+            document_extid=None,
+            testrun_type="save",
+            session_hash=session_hash,
+        )
+        doc_extid = result["document"]["extid"]
+        testrun_extid = result["testrun"]["extid"]
+
+        response = client.get(
+            f"/api/documents/{doc_extid}/testruns/{testrun_extid}",
+            headers=self._make_auth_header(token),
+        )
+        assert response.status_code == 200
+        data = response.json()
+        assert "testrun" in data
+        assert data["testrun"]["extid"] == testrun_extid
+
+    def test_get_deleted_testrun_returns_404(self, client, store, sample_testrun_state, clean_db):
+        """GET testrun MUST return 404 for soft-deleted testruns.
+
+        SECURITY: This prevents information disclosure for deleted testruns.
+        """
+        token = "test_token_get_deleted"
+        session_hash = self._hash_token(token)
+
+        result = store.save(
+            sample_testrun_state,
+            document_extid=None,
+            testrun_type="save",
+            session_hash=session_hash,
+        )
+        doc_extid = result["document"]["extid"]
+        testrun_extid = result["testrun"]["extid"]
+
+        # Soft-delete the testrun
+        deleted = store.soft_delete_testrun_by_extid(testrun_extid)
+        assert deleted is True
+
+        # GET should return 404
+        response = client.get(
+            f"/api/documents/{doc_extid}/testruns/{testrun_extid}",
+            headers=self._make_auth_header(token),
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Testrun not found"
+
+    def test_delete_active_testrun_returns_200(self, client, store, sample_testrun_state, clean_db):
+        """DELETE testrun should return 200 for active (non-deleted) testruns."""
+        token = "test_token_delete_active"
+        session_hash = self._hash_token(token)
+
+        result = store.save(
+            sample_testrun_state,
+            document_extid=None,
+            testrun_type="save",
+            session_hash=session_hash,
+        )
+        doc_extid = result["document"]["extid"]
+        testrun_extid = result["testrun"]["extid"]
+
+        response = client.delete(
+            f"/api/documents/{doc_extid}/testruns/{testrun_extid}",
+            headers=self._make_auth_header(token),
+        )
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+
+    def test_delete_already_deleted_testrun_returns_404(self, client, store, sample_testrun_state, clean_db):
+        """DELETE testrun MUST return 404 for already soft-deleted testruns.
+
+        SECURITY: This ensures idempotent delete behavior and prevents
+        information disclosure about the existence of deleted testruns.
+        """
+        token = "test_token_delete_deleted"
+        session_hash = self._hash_token(token)
+
+        result = store.save(
+            sample_testrun_state,
+            document_extid=None,
+            testrun_type="save",
+            session_hash=session_hash,
+        )
+        doc_extid = result["document"]["extid"]
+        testrun_extid = result["testrun"]["extid"]
+
+        # First delete should succeed
+        deleted = store.soft_delete_testrun_by_extid(testrun_extid)
+        assert deleted is True
+
+        # Second DELETE via API should return 404
+        response = client.delete(
+            f"/api/documents/{doc_extid}/testruns/{testrun_extid}",
+            headers=self._make_auth_header(token),
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Testrun not found"
+
+    def test_double_delete_is_idempotent(self, client, store, sample_testrun_state, clean_db):
+        """Double delete via API should return 404 on second attempt.
+
+        This verifies idempotent behavior: first delete succeeds,
+        second delete returns 404 (not found, since already deleted).
+        """
+        token = "test_token_double_delete"
+        session_hash = self._hash_token(token)
+
+        result = store.save(
+            sample_testrun_state,
+            document_extid=None,
+            testrun_type="save",
+            session_hash=session_hash,
+        )
+        doc_extid = result["document"]["extid"]
+        testrun_extid = result["testrun"]["extid"]
+
+        # First DELETE should succeed
+        response1 = client.delete(
+            f"/api/documents/{doc_extid}/testruns/{testrun_extid}",
+            headers=self._make_auth_header(token),
+        )
+        assert response1.status_code == 200
+        assert response1.json()["ok"] is True
+
+        # Second DELETE should return 404
+        response2 = client.delete(
+            f"/api/documents/{doc_extid}/testruns/{testrun_extid}",
+            headers=self._make_auth_header(token),
+        )
+        assert response2.status_code == 404
+        assert response2.json()["detail"] == "Testrun not found"
+
+    def test_get_nonexistent_testrun_returns_404(self, client, store, sample_testrun_state, clean_db):
+        """GET for a non-existent testrun extid should return 404."""
+        token = "test_token_get_nonexistent"
+        session_hash = self._hash_token(token)
+
+        # Create document but use a fake testrun extid
+        result = store.save(
+            sample_testrun_state,
+            document_extid=None,
+            testrun_type="save",
+            session_hash=session_hash,
+        )
+        doc_extid = result["document"]["extid"]
+        fake_testrun_extid = "00000000-0000-0000-0000-000000000000"
+
+        response = client.get(
+            f"/api/documents/{doc_extid}/testruns/{fake_testrun_extid}",
+            headers=self._make_auth_header(token),
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Testrun not found"
+
+    def test_delete_nonexistent_testrun_returns_404(self, client, store, sample_testrun_state, clean_db):
+        """DELETE for a non-existent testrun extid should return 404."""
+        token = "test_token_delete_nonexistent"
+        session_hash = self._hash_token(token)
+
+        # Create document but use a fake testrun extid
+        result = store.save(
+            sample_testrun_state,
+            document_extid=None,
+            testrun_type="save",
+            session_hash=session_hash,
+        )
+        doc_extid = result["document"]["extid"]
+        fake_testrun_extid = "00000000-0000-0000-0000-000000000000"
+
+        response = client.delete(
+            f"/api/documents/{doc_extid}/testruns/{fake_testrun_extid}",
+            headers=self._make_auth_header(token),
+        )
+        assert response.status_code == 404
+        assert response.json()["detail"] == "Testrun not found"
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# Save endpoint ownership verification tests (/api/save)
+# ═══════════════════════════════════════════════════════════════════════════
+
+
+class TestSaveEndpointOwnership:
+    """Security tests for save endpoint ownership verification.
+
+    CRITICAL: These tests verify that the save endpoint properly checks
+    ownership before allowing updates. A user should not be able to
+    update testruns or documents belonging to another session.
+    """
+
+    @staticmethod
+    def _make_auth_header(token: str) -> dict:
+        """Create Authorization header from a raw token."""
+        return {"Authorization": f"Bearer {token}"}
+
+    @staticmethod
+    def _hash_token(token: str) -> str:
+        """Hash a token for storage (matches dd.auth.hash_token)."""
+        return hashlib.sha256(token.encode()).hexdigest()
+
+    def test_save_with_own_document_succeeds(self, client, store, sample_testrun_state, clean_db):
+        """Save with documentExtid owned by current session succeeds."""
+        token = "test_token_own_doc"
+        session_hash = self._hash_token(token)
+
+        # Create initial document and testrun
+        result = store.save(
+            sample_testrun_state,
+            document_extid=None,
+            testrun_type="save",
+            session_hash=session_hash,
+        )
+        doc_extid = result["document"]["extid"]
+
+        # Save a new testrun to the same document should succeed
+        response = client.post(
+            "/api/save",
+            json={
+                "state": sample_testrun_state,
+                "documentExtid": doc_extid,
+                "testrunType": "save",
+            },
+            headers=self._make_auth_header(token),
+        )
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+        assert response.json()["document"]["extid"] == doc_extid
+
+    def test_save_with_other_session_document_returns_403(self, client, store, sample_testrun_state, clean_db):
+        """Save with documentExtid belonging to another session returns 403.
+
+        SECURITY: This prevents users from appending testruns to documents
+        they don't own.
+        """
+        owner_token = "owner_token_for_doc"
+        attacker_token = "attacker_token"
+        owner_hash = self._hash_token(owner_token)
+
+        # Owner creates a document
+        result = store.save(
+            sample_testrun_state,
+            document_extid=None,
+            testrun_type="save",
+            session_hash=owner_hash,
+        )
+        doc_extid = result["document"]["extid"]
+
+        # Attacker tries to save to owner's document
+        response = client.post(
+            "/api/save",
+            json={
+                "state": sample_testrun_state,
+                "documentExtid": doc_extid,
+                "testrunType": "save",
+            },
+            headers=self._make_auth_header(attacker_token),
+        )
+        assert response.status_code == 403
+        assert "Not authorized" in response.json()["detail"]
+
+    def test_save_with_own_testrun_succeeds(self, client, store, sample_testrun_state, clean_db):
+        """Save with testrunExtid owned by current session succeeds."""
+        token = "test_token_own_testrun"
+        session_hash = self._hash_token(token)
+
+        # Create initial document and testrun
+        result = store.save(
+            sample_testrun_state,
+            document_extid=None,
+            testrun_type="save",
+            session_hash=session_hash,
+        )
+        testrun_extid = result["testrun"]["extid"]
+
+        # Save referencing the testrun should succeed
+        response = client.post(
+            "/api/save",
+            json={
+                "state": sample_testrun_state,
+                "testrunExtid": testrun_extid,
+                "testrunType": "save",
+            },
+            headers=self._make_auth_header(token),
+        )
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+
+    def test_save_with_other_session_testrun_returns_403(self, client, store, sample_testrun_state, clean_db):
+        """Save with testrunExtid belonging to another session returns 403.
+
+        SECURITY: This prevents users from referencing or updating testruns
+        they don't own.
+        """
+        owner_token = "owner_token_for_testrun"
+        attacker_token = "attacker_token_for_testrun"
+        owner_hash = self._hash_token(owner_token)
+
+        # Owner creates a testrun
+        result = store.save(
+            sample_testrun_state,
+            document_extid=None,
+            testrun_type="save",
+            session_hash=owner_hash,
+        )
+        testrun_extid = result["testrun"]["extid"]
+
+        # Attacker tries to reference owner's testrun
+        response = client.post(
+            "/api/save",
+            json={
+                "state": sample_testrun_state,
+                "testrunExtid": testrun_extid,
+                "testrunType": "save",
+            },
+            headers=self._make_auth_header(attacker_token),
+        )
+        assert response.status_code == 403
+        assert "Not authorized" in response.json()["detail"]
+
+    def test_save_new_document_without_ownership_issue(self, client, sample_testrun_state, clean_db):
+        """Save without documentExtid or testrunExtid creates a new document."""
+        token = "test_token_new_doc"
+
+        # Save with no references should always succeed (creates new)
+        response = client.post(
+            "/api/save",
+            json={
+                "state": sample_testrun_state,
+                "testrunType": "save",
+            },
+            headers=self._make_auth_header(token),
+        )
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+        assert "document" in response.json()
+        assert "testrun" in response.json()
+
+    def test_save_nonexistent_document_returns_403(self, client, sample_testrun_state, clean_db):
+        """Save with nonexistent documentExtid returns 403.
+
+        Even if the document doesn't exist, the same 403 is returned to
+        avoid information leakage about document existence.
+        """
+        token = "test_token_nonexistent"
+        fake_doc_extid = "00000000-0000-0000-0000-000000000000"
+
+        response = client.post(
+            "/api/save",
+            json={
+                "state": sample_testrun_state,
+                "documentExtid": fake_doc_extid,
+                "testrunType": "save",
+            },
+            headers=self._make_auth_header(token),
+        )
+        # Nonexistent doc should return 403 (unauthorized) not 404
+        # to avoid revealing whether documents exist
+        assert response.status_code == 403
+        assert "Not authorized" in response.json()["detail"]
+
+
+# =============================================================================
+# Save endpoint payload size limit tests (/api/save)
+# =============================================================================
+
+
+class TestSavePayloadSizeLimits:
+    """Tests for save endpoint payload size validation.
+
+    SECURITY: Task 37 added MAX_STATE_SIZE (1MB) and MAX_BLOB_SIZE (2MB) limits
+    to prevent database bloat from oversized payloads. Exceeding these limits
+    returns HTTP 413 Payload Too Large.
+    """
+
+    def _make_auth_header(self, token):
+        """Create Authorization header for the given token."""
+        return {"Authorization": f"Bearer {token}"}
+
+    def test_state_exceeds_max_size_returns_413(self, client, monkeypatch, clean_db):
+        """State larger than MAX_STATE_SIZE returns 413."""
+        # Temporarily set a smaller limit for testing (1KB instead of 1MB)
+        monkeypatch.setattr("dd.config.MAX_STATE_SIZE", 1024)
+        monkeypatch.setattr("dd.documents.MAX_STATE_SIZE", 1024)
+
+        # Create a state that exceeds 1KB
+        large_state = {
+            "title": "Large State Test",
+            "endpoints": [
+                {"method": "GET", "path": f"/api/endpoint{i}", "state": "done-ok"}
+                for i in range(100)  # Should easily exceed 1KB
+            ],
+        }
+
+        response = client.post(
+            "/api/save",
+            json={"state": large_state, "testrunType": "save"},
+            headers=self._make_auth_header("test_token_large_state"),
+        )
+        assert response.status_code == 413
+        assert "State too large" in response.json()["detail"]
+        assert "bytes exceeds" in response.json()["detail"]
+        assert "byte limit" in response.json()["detail"]
+
+    def test_encrypted_blob_exceeds_max_size_returns_413(self, client, monkeypatch, clean_db):
+        """Encrypted blob larger than MAX_BLOB_SIZE returns 413."""
+        # Temporarily set a smaller limit for testing (1KB instead of 2MB)
+        monkeypatch.setattr("dd.config.MAX_BLOB_SIZE", 1024)
+        monkeypatch.setattr("dd.documents.MAX_BLOB_SIZE", 1024)
+
+        # Create a blob that exceeds 1KB
+        large_blob = "x" * 2048  # 2KB of data
+
+        response = client.post(
+            "/api/save",
+            json={
+                "state": {"title": "Blob Test", "endpoints": []},
+                "testrunType": "save",
+                "encryptedBlob": large_blob,
+            },
+            headers=self._make_auth_header("test_token_large_blob"),
+        )
+        assert response.status_code == 413
+        assert "Blob too large" in response.json()["detail"]
+        assert "bytes exceeds" in response.json()["detail"]
+        assert "byte limit" in response.json()["detail"]
+
+    def test_payloads_under_limit_succeed(self, client, monkeypatch, clean_db):
+        """Payloads under the size limits succeed."""
+        # Set reasonable limits
+        monkeypatch.setattr("dd.config.MAX_STATE_SIZE", 10240)  # 10KB
+        monkeypatch.setattr("dd.documents.MAX_STATE_SIZE", 10240)
+        monkeypatch.setattr("dd.config.MAX_BLOB_SIZE", 20480)  # 20KB
+        monkeypatch.setattr("dd.documents.MAX_BLOB_SIZE", 20480)
+
+        # Create a state under 10KB
+        small_state = {
+            "title": "Small State Test",
+            "endpoints": [
+                {"method": "GET", "path": "/api/status", "state": "done-ok"}
+            ],
+        }
+        # Create a blob under 20KB
+        small_blob = "x" * 5000  # 5KB
+
+        response = client.post(
+            "/api/save",
+            json={
+                "state": small_state,
+                "testrunType": "save",
+                "encryptedBlob": small_blob,
+            },
+            headers=self._make_auth_header("test_token_small"),
+        )
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+
+    def test_error_message_includes_actual_and_limit_sizes(self, client, monkeypatch, clean_db):
+        """Error message includes both actual size and limit."""
+        limit = 500
+        monkeypatch.setattr("dd.config.MAX_STATE_SIZE", limit)
+        monkeypatch.setattr("dd.documents.MAX_STATE_SIZE", limit)
+
+        # Create a state that exceeds the limit
+        large_state = {
+            "title": "Size Test",
+            "data": "x" * 1000,  # Should exceed 500 byte limit
+        }
+
+        response = client.post(
+            "/api/save",
+            json={"state": large_state, "testrunType": "save"},
+            headers=self._make_auth_header("test_token_sizes"),
+        )
+        assert response.status_code == 413
+        detail = response.json()["detail"]
+        # Should include both the actual size and the limit
+        assert str(limit) in detail  # The limit should be mentioned
+        assert "bytes exceeds" in detail
+        # The actual size should be in the message
+        import re
+        size_match = re.search(r"(\d+) bytes exceeds", detail)
+        assert size_match is not None
+        actual_size = int(size_match.group(1))
+        assert actual_size > limit  # Actual should be larger than limit
+
+    def test_empty_state_under_limit(self, client, clean_db):
+        """Empty state should always pass size validation."""
+        response = client.post(
+            "/api/save",
+            json={"state": {}, "testrunType": "save"},
+            headers=self._make_auth_header("test_token_empty"),
+        )
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+
+    def test_blob_at_exact_limit_succeeds(self, client, monkeypatch, clean_db):
+        """Blob at exactly the size limit should succeed."""
+        limit = 1000
+        monkeypatch.setattr("dd.config.MAX_BLOB_SIZE", limit)
+        monkeypatch.setattr("dd.documents.MAX_BLOB_SIZE", limit)
+
+        # Create a blob exactly at the limit
+        exact_blob = "x" * limit
+
+        response = client.post(
+            "/api/save",
+            json={
+                "state": {"title": "Exact Test", "endpoints": []},
+                "testrunType": "save",
+                "encryptedBlob": exact_blob,
+            },
+            headers=self._make_auth_header("test_token_exact"),
+        )
+        assert response.status_code == 200
+        assert response.json()["ok"] is True
+
+    def test_blob_one_byte_over_limit_fails(self, client, monkeypatch, clean_db):
+        """Blob one byte over the limit should fail."""
+        limit = 1000
+        monkeypatch.setattr("dd.config.MAX_BLOB_SIZE", limit)
+        monkeypatch.setattr("dd.documents.MAX_BLOB_SIZE", limit)
+
+        # Create a blob one byte over the limit
+        over_blob = "x" * (limit + 1)
+
+        response = client.post(
+            "/api/save",
+            json={
+                "state": {"title": "Over Test", "endpoints": []},
+                "testrunType": "save",
+                "encryptedBlob": over_blob,
+            },
+            headers=self._make_auth_header("test_token_over"),
+        )
+        assert response.status_code == 413
+        assert "Blob too large" in response.json()["detail"]

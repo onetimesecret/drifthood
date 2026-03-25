@@ -7,12 +7,16 @@
   let { endpoint, type = 'query' } = $props();
 
   let pairs = $state([{ key: '', val: '' }]);
-  let syncing = false;
+  // Track the last body value we wrote to avoid re-parsing our own updates.
+  // Using a value-based approach instead of boolean flag to handle race conditions
+  // where external updates arrive during microtask gaps.
+  let lastWrittenBody = null;
 
   // Parse endpoint.body into pairs on mount and when body changes externally
   $effect(() => {
     const body = endpoint.body;
-    if (syncing) return;
+    // Skip re-parsing if this is the body value we just wrote
+    if (body === lastWrittenBody) return;
     const parsed = parseKvString(body);
     pairs = parsed.length > 0 ? parsed : [{ key: '', val: '' }];
   });
@@ -25,10 +29,8 @@
       .map(p => encodeURIComponent(p.key) + '=' + encodeURIComponent(p.val))
       .join('&');
 
-    syncing = true;
+    lastWrittenBody = assembled;
     updateEndpoint(endpoint._localId, { body: assembled });
-    // Use queueMicrotask to reset flag after the reactive update propagates
-    queueMicrotask(() => { syncing = false; });
   });
 
   function addRow() {

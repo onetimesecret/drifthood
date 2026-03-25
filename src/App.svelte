@@ -128,6 +128,16 @@
     try {
       // Mark testrun as public before sharing
       await apiSetTestrunPublic(documents.currentTestrunExtid, true);
+      // navigator.clipboard is undefined on HTTP (non-secure context)
+      if (!navigator.clipboard) {
+        console.warn('Clipboard API unavailable (requires HTTPS)');
+        shareButtonText = 'HTTPS required';
+        if (shareButtonTimeout) clearTimeout(shareButtonTimeout);
+        shareButtonTimeout = setTimeout(() => {
+          shareButtonText = 'Share';
+        }, 3000);
+        return;
+      }
       await navigator.clipboard.writeText(shareUrl);
       shareButtonText = 'Copied';
       if (shareButtonTimeout) clearTimeout(shareButtonTimeout);
@@ -479,7 +489,9 @@
   }
 
   async function handleDropHtml(text, filename) {
-    const match = text.match(/var\s+DD_SNAPSHOT\s*=\s*(\{[\s\S]*?\});\s*<\/script>/);
+    // Use greedy match (.*) to capture the full JSON object including nested braces.
+    // The final }; before closing script tag anchors the match correctly.
+    const match = text.match(/var\s+DD_SNAPSHOT\s*=\s*(\{[\s\S]*\});\s*<\/script>/);
     if (!match) {
       showDropToast('No snapshot data found in HTML file', true);
       return;

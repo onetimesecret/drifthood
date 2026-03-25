@@ -192,3 +192,83 @@ class TestShareEndpointSecurity:
         data = response.json()
         assert data["testrun"]["extid"] == testrun["extid"]
         assert data["document"]["title"] == "Test Document"
+
+
+class TestCreateTestrunValidation:
+    """Tests for create_testrun testrun_type validation.
+
+    These tests verify that invalid testrun_type values are rejected with
+    ValueError, ensuring data integrity even when running with Python -O
+    (optimized mode where assert statements are stripped).
+    """
+
+    def test_valid_testrun_type_save_succeeds(self, store, document):
+        """create_testrun accepts testrun_type='save'."""
+        state = {"endpoints": []}
+        testrun = store.create_testrun(
+            document["id"],
+            state,
+            testrun_type="save",
+        )
+        assert testrun["extid"] is not None
+        # Verify it was stored correctly (testrun_type not in response,
+        # but we can verify via the DB that it doesn't error)
+
+    def test_valid_testrun_type_autosave_succeeds(self, store, document):
+        """create_testrun accepts testrun_type='autosave'."""
+        state = {"endpoints": []}
+        testrun = store.create_testrun(
+            document["id"],
+            state,
+            testrun_type="autosave",
+        )
+        assert testrun["extid"] is not None
+
+    def test_invalid_testrun_type_raises_valueerror(self, store, document):
+        """create_testrun rejects invalid testrun_type with ValueError."""
+        state = {"endpoints": []}
+        with pytest.raises(ValueError) as exc_info:
+            store.create_testrun(
+                document["id"],
+                state,
+                testrun_type="invalid",
+            )
+        assert "Invalid testrun_type" in str(exc_info.value)
+        assert "invalid" in str(exc_info.value)
+
+    def test_empty_testrun_type_raises_valueerror(self, store, document):
+        """create_testrun rejects empty string testrun_type."""
+        state = {"endpoints": []}
+        with pytest.raises(ValueError) as exc_info:
+            store.create_testrun(
+                document["id"],
+                state,
+                testrun_type="",
+            )
+        assert "Invalid testrun_type" in str(exc_info.value)
+
+    def test_none_testrun_type_raises_error(self, store, document):
+        """create_testrun rejects None testrun_type.
+
+        This tests the 'in' operator behavior with None - it should
+        raise an error or be rejected.
+        """
+        state = {"endpoints": []}
+        with pytest.raises((ValueError, TypeError)):
+            store.create_testrun(
+                document["id"],
+                state,
+                testrun_type=None,
+            )
+
+    def test_case_sensitive_testrun_type(self, store, document):
+        """create_testrun validation is case-sensitive."""
+        state = {"endpoints": []}
+        # 'Save' (capital S) should be rejected
+        with pytest.raises(ValueError) as exc_info:
+            store.create_testrun(
+                document["id"],
+                state,
+                testrun_type="Save",
+            )
+        assert "Invalid testrun_type" in str(exc_info.value)

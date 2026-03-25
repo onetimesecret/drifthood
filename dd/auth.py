@@ -89,10 +89,12 @@ async def validate_token(request: Request):
         session_hash = get_session_hash(request)
     except HTTPException:
         return {"valid": False, "documentCount": 0, "extid": None}
-    docs = store.list_documents(session_hash=session_hash)
     session = store.get_session_by_hash(session_hash)
     if not session:
-        session = store.create_session(session_hash)
+        # No session exists for this token - don't create one.
+        # Sessions should only be created via /token endpoint.
+        return {"valid": False, "documentCount": 0, "extid": None}
+    docs = store.list_documents(session_hash=session_hash)
     return {
         "valid": True,
         "documentCount": len(docs),
