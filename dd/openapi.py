@@ -11,10 +11,13 @@ rename detection) is only ~50 lines. Replace the generic parsing layer with
 a spec-compliant library when the opportunity arises.
 """
 
+import ipaddress
 import json
 import logging
+import socket
 from collections import defaultdict
 from difflib import SequenceMatcher
+from urllib.parse import urlparse
 
 import requests as req
 import yaml
@@ -51,8 +54,7 @@ import re
 # Pattern to match API version prefixes like /api/v1/, /api/v2/, /v1/, /v2/, etc.
 # Also handles /api/v{major}.{minor}/ patterns.
 _VERSION_PREFIX_PATTERN = re.compile(
-    r'^(/api)?/v\d+(\.\d+)?(/|$)',
-    re.IGNORECASE
+    r"^(/api)?/v\d+(\.\d+)?(/|$)", re.IGNORECASE
 )
 
 
@@ -69,10 +71,10 @@ def normalize_path_for_diff(path: str) -> str:
     API versions for field-level diff comparison.
     """
     # Strip version prefix, preserving the rest of the path
-    normalized = _VERSION_PREFIX_PATTERN.sub('/', path)
+    normalized = _VERSION_PREFIX_PATTERN.sub("/", path)
     # Clean up any double slashes
-    while '//' in normalized:
-        normalized = normalized.replace('//', '/')
+    while "//" in normalized:
+        normalized = normalized.replace("//", "/")
     return normalized
 
 
@@ -98,7 +100,9 @@ def resolve_ref(obj: dict, spec: dict, _seen: set | None = None) -> dict:
     node = spec
     for p in parts:
         if not isinstance(node, dict) or p not in node:
-            logger.warning("$ref target not found: %s (missing segment '%s')", ref, p)
+            logger.warning(
+                "$ref target not found: %s (missing segment '%s')", ref, p
+            )
             return obj
         node = node[p]
 
@@ -141,7 +145,9 @@ def resolve_anyof_type(prop: dict, spec: dict) -> tuple[str, dict]:
     return "string", prop
 
 
-def extract_fields(schema: dict, spec: dict, prefix: str = "", _seen: set | None = None) -> list[dict]:
+def extract_fields(
+    schema: dict, spec: dict, prefix: str = "", _seen: set | None = None
+) -> list[dict]:
     """Walk a schema and return a flat list of field descriptors.
 
     Each field: {name, path, type, required, example, enum, const, min, max,
@@ -173,15 +179,23 @@ def extract_fields(schema: dict, spec: dict, prefix: str = "", _seen: set | None
             merged_required.extend(sub.get("required", []))
         # Top-level properties take precedence over allOf contributions
         merged_props.update(schema.get("properties", {}))
-        schema = {**schema, "properties": merged_props, "required": merged_required}
+        schema = {
+            **schema,
+            "properties": merged_props,
+            "required": merged_required,
+        }
 
     # oneOf: pick the first branch that has properties
     if "oneOf" in schema and not schema.get("properties"):
         for branch in schema["oneOf"]:
             branch = resolve_ref(branch, spec)
             if branch.get("properties"):
-                schema = {**schema, "properties": branch["properties"],
-                          "required": list(schema.get("required", [])) + list(branch.get("required", []))}
+                schema = {
+                    **schema,
+                    "properties": branch["properties"],
+                    "required": list(schema.get("required", []))
+                    + list(branch.get("required", [])),
+                }
                 break
 
     props = schema.get("properties", {})
@@ -203,8 +217,7 @@ def extract_fields(schema: dict, spec: dict, prefix: str = "", _seen: set | None
         fmt = prop.get("format", "")
         # Detect fields that should be auto-ignored in drift comparison
         drift_ignore = bool(
-            prop.get("x-drift-ignore")
-            or fmt in TEMPORAL_FORMATS
+            prop.get("x-drift-ignore") or fmt in TEMPORAL_FORMATS
         )
         field = {
             "name": name,
@@ -225,19 +238,25 @@ def extract_fields(schema: dict, spec: dict, prefix: str = "", _seen: set | None
             if "maximum" in prop:
                 field["max"] = prop["maximum"]
         # Recurse into nested objects (with properties or additionalProperties)
-        if ftype == "object" and (prop.get("properties") or prop.get("additionalProperties")):
+        if ftype == "object" and (
+            prop.get("properties") or prop.get("additionalProperties")
+        ):
             field["nested"] = True
             fields.append(field)
             fields.extend(extract_fields(prop, spec, path, _seen))
         # Recurse into array items that are objects
         elif ftype == "array" and prop.get("items"):
             items_schema = resolve_ref(prop.get("items", {}), spec)
-            if items_schema.get("type") == "object" and items_schema.get("properties"):
+            if items_schema.get("type") == "object" and items_schema.get(
+                "properties"
+            ):
                 field["nested"] = True
                 fields.append(field)
                 # Use [] suffix to indicate array item fields
                 array_path = f"{path}[]"
-                fields.extend(extract_fields(items_schema, spec, array_path, _seen))
+                fields.extend(
+                    extract_fields(items_schema, spec, array_path, _seen)
+                )
             else:
                 field["nested"] = False
                 fields.append(field)
@@ -252,41 +271,47 @@ def extract_fields(schema: dict, spec: dict, prefix: str = "", _seen: set | None
         add_type = normalize_type(additional_props.get("type", "any"))
         # Handle anyOf in additionalProperties
         if "anyOf" in additional_props:
-            add_type, additional_props = resolve_anyof_type(additional_props, spec)
+            add_type, additional_props = resolve_anyof_type(
+                additional_props, spec
+            )
         add_path = f"{prefix}[*]" if not prefix else f"{prefix}.[*]"
-        fields.append({
-            "name": "[*]",
-            "path": add_path,
-            "type": add_type,
-            "required": False,
-            "example": additional_props.get("example"),
-            "enum": additional_props.get("enum"),
-            "const": None,
-            "description": "Dynamic additional properties",
-            "format": additional_props.get("format", ""),
-            "drift_ignore": False,
-            "deprecated": False,
-            "nested": False,
-            "additional_properties": True,
-        })
+        fields.append(
+            {
+                "name": "[*]",
+                "path": add_path,
+                "type": add_type,
+                "required": False,
+                "example": additional_props.get("example"),
+                "enum": additional_props.get("enum"),
+                "const": None,
+                "description": "Dynamic additional properties",
+                "format": additional_props.get("format", ""),
+                "drift_ignore": False,
+                "deprecated": False,
+                "nested": False,
+                "additional_properties": True,
+            }
+        )
     elif additional_props is True:
         # additionalProperties: true means any type allowed
         add_path = f"{prefix}[*]" if not prefix else f"{prefix}.[*]"
-        fields.append({
-            "name": "[*]",
-            "path": add_path,
-            "type": "any",
-            "required": False,
-            "example": None,
-            "enum": None,
-            "const": None,
-            "description": "Dynamic additional properties (any type)",
-            "format": "",
-            "drift_ignore": False,
-            "deprecated": False,
-            "nested": False,
-            "additional_properties": True,
-        })
+        fields.append(
+            {
+                "name": "[*]",
+                "path": add_path,
+                "type": "any",
+                "required": False,
+                "example": None,
+                "enum": None,
+                "const": None,
+                "description": "Dynamic additional properties (any type)",
+                "format": "",
+                "drift_ignore": False,
+                "deprecated": False,
+                "nested": False,
+                "additional_properties": True,
+            }
+        )
 
     return fields
 
@@ -328,14 +353,18 @@ def _build_form_parts(props: dict, spec: dict, prefix: str = "") -> list[str]:
                 # Recurse into nested object properties
                 nested_props = prop.get("properties", {})
                 if nested_props:
-                    parts.extend(_build_form_parts(nested_props, spec, prefix=key))
+                    parts.extend(
+                        _build_form_parts(nested_props, spec, prefix=key)
+                    )
                 else:
                     # Object with no defined properties
                     parts.append(f"{key}={{}}")
     return parts
 
 
-def extract_example_body(schema: dict, spec: dict, *, for_json: bool = False) -> str | None:
+def extract_example_body(
+    schema: dict, spec: dict, *, for_json: bool = False
+) -> str | None:
     """Best-effort: pull example values from a request body schema.
 
     Args:
@@ -417,7 +446,11 @@ def parse_openapi(raw: str) -> dict:
             f"(expected JSON or YAML, got {content_hint})"
         )
 
-    if not spec.get("paths") and not spec.get("openapi") and not spec.get("swagger"):
+    if (
+        not spec.get("paths")
+        and not spec.get("openapi")
+        and not spec.get("swagger")
+    ):
         raise ValueError(
             "Content parsed as JSON/YAML but does not appear to be an OpenAPI spec "
             "(missing 'paths', 'openapi', or 'swagger' keys)"
@@ -489,19 +522,25 @@ def parse_openapi(raw: str) -> dict:
                 content = req_body.get("content", {})
                 if "application/json" in content:
                     schema = content["application/json"].get("schema", {})
-                    body_hint = extract_example_body(schema, spec, for_json=True)
+                    body_hint = extract_example_body(
+                        schema, spec, for_json=True
+                    )
                     content_type = "application/json"
                     fields = extract_fields(schema, spec)
                 elif "application/x-www-form-urlencoded" in content:
                     schema = content["application/x-www-form-urlencoded"].get(
                         "schema", {}
                     )
-                    body_hint = extract_example_body(schema, spec, for_json=False)
+                    body_hint = extract_example_body(
+                        schema, spec, for_json=False
+                    )
                     content_type = "application/x-www-form-urlencoded"
                     fields = extract_fields(schema, spec)
                 elif "multipart/form-data" in content:
                     schema = content["multipart/form-data"].get("schema", {})
-                    body_hint = extract_example_body(schema, spec, for_json=False)
+                    body_hint = extract_example_body(
+                        schema, spec, for_json=False
+                    )
                     content_type = "multipart/form-data"
                     fields = extract_fields(schema, spec)
 
@@ -532,7 +571,9 @@ def parse_openapi(raw: str) -> dict:
                     )
                 elif param.get("in") == "body":
                     schema = param.get("schema", {})
-                    body_hint = extract_example_body(schema, spec, for_json=True)
+                    body_hint = extract_example_body(
+                        schema, spec, for_json=True
+                    )
                     content_type = "application/json"
                     if not fields:
                         fields = extract_fields(schema, spec)
@@ -576,10 +617,14 @@ def parse_openapi(raw: str) -> dict:
                         {
                             "name": name,
                             "path": name,
-                            "type": normalize_type(param.get(
-                                "type",
-                                param.get("schema", {}).get("type", "string"),
-                            )),
+                            "type": normalize_type(
+                                param.get(
+                                    "type",
+                                    param.get("schema", {}).get(
+                                        "type", "string"
+                                    ),
+                                )
+                            ),
                             "required": param.get("required", False),
                             "example": param.get(
                                 "example", param.get("default")
@@ -604,10 +649,14 @@ def parse_openapi(raw: str) -> dict:
                         {
                             "name": param.get("name", ""),
                             "path": param.get("name", ""),
-                            "type": normalize_type(param.get(
-                                "type",
-                                param.get("schema", {}).get("type", "string"),
-                            )),
+                            "type": normalize_type(
+                                param.get(
+                                    "type",
+                                    param.get("schema", {}).get(
+                                        "type", "string"
+                                    ),
+                                )
+                            ),
                             "required": True,
                             "example": param.get(
                                 "example", param.get("default")
@@ -830,10 +879,18 @@ def diff_response_fields(
 
     # Status codes added/removed
     for code in sorted(codes_b - codes_a):
-        per_code[code] = {"status": "added_in_b", "fields": resp_b[code], "diff": {}}
+        per_code[code] = {
+            "status": "added_in_b",
+            "fields": resp_b[code],
+            "diff": {},
+        }
         has_changes = True
     for code in sorted(codes_a - codes_b):
-        per_code[code] = {"status": "removed_from_b", "fields": resp_a[code], "diff": {}}
+        per_code[code] = {
+            "status": "removed_from_b",
+            "fields": resp_a[code],
+            "diff": {},
+        }
         has_changes = True
 
     # Shared status codes: diff the field lists
@@ -882,7 +939,9 @@ def detect_endpoint_renames(
             a_path = a["path"].lstrip("/")
 
             # Path similarity using SequenceMatcher
-            similarity = SequenceMatcher(None, r_path.lower(), a_path.lower()).ratio()
+            similarity = SequenceMatcher(
+                None, r_path.lower(), a_path.lower()
+            ).ratio()
 
             # Also consider segment-based matching (private/recent -> receipt/recent)
             r_segments = r_path.split("/")
@@ -913,13 +972,15 @@ def detect_endpoint_renames(
         claimed_removed.add(r_key)
         claimed_added.add(a_key)
 
-        possible_renames.append({
-            "old_method": r["method"],
-            "old_path": r["path"],
-            "new_method": a["method"],
-            "new_path": a["path"],
-            "similarity": round(similarity, 2),
-        })
+        possible_renames.append(
+            {
+                "old_method": r["method"],
+                "old_path": r["path"],
+                "new_method": a["method"],
+                "new_path": a["path"],
+                "similarity": round(similarity, 2),
+            }
+        )
 
     return possible_renames
 
@@ -927,6 +988,51 @@ def detect_endpoint_renames(
 # ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
+def _validate_safe_url(url: str) -> None:
+    """Raise ValueError if the URL targets a private/internal network (SSRF protection).
+
+    Blocks:
+    - Non-http/https schemes
+    - Loopback addresses (127.x.x.x, ::1)
+    - Private RFC-1918 ranges (10.x, 172.16-31.x, 192.168.x)
+    - Link-local addresses (169.254.x.x — cloud metadata endpoints)
+    - Reserved/multicast ranges
+    """
+    parsed = urlparse(url)
+    if parsed.scheme not in ("http", "https"):
+        raise ValueError(
+            f"URL scheme '{parsed.scheme}' is not allowed. Only http and https are permitted."
+        )
+    hostname = parsed.hostname
+    if not hostname:
+        raise ValueError("URL has no hostname.")
+
+    try:
+        addr_infos = socket.getaddrinfo(hostname, None)
+    except socket.gaierror as exc:
+        raise ValueError(
+            f"Unable to resolve hostname '{hostname}': {exc}"
+        ) from exc
+
+    for addr_info in addr_infos:
+        ip_str = addr_info[4][0]
+        try:
+            ip = ipaddress.ip_address(ip_str)
+        except ValueError:
+            continue
+        if (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_reserved
+            or ip.is_multicast
+        ):
+            raise ValueError(
+                f"Requests to private or internal addresses are not allowed "
+                f"('{hostname}' resolved to {ip})."
+            )
+
+
 @router.post("/api/parse-openapi")
 async def parse_openapi_upload(
     request: Request,
@@ -938,15 +1044,20 @@ async def parse_openapi_upload(
     Requires authentication to prevent SSRF attacks where unauthenticated
     callers could use the server to fetch arbitrary URLs.
     """
-    get_session_hash(request)  # Require valid session token; raises 401 if missing
+    get_session_hash(
+        request
+    )  # Require valid session token; raises 401 if missing
     raw = None
     if file:
         raw = (await file.read()).decode("utf-8")
     elif url:
         try:
+            _validate_safe_url(url)
             r = req.get(url, timeout=15)
             r.raise_for_status()
             raw = r.text
+        except ValueError as e:
+            return {"error": f"Invalid URL: {e}"}
         except Exception as e:
             return {"error": f"Failed to fetch spec from URL: {e}"}
     else:
@@ -972,7 +1083,9 @@ async def diff_schemas(
     Requires authentication to prevent SSRF attacks where unauthenticated
     callers could use the server to fetch arbitrary URLs.
     """
-    get_session_hash(request)  # Require valid session token; raises 401 if missing
+    get_session_hash(
+        request
+    )  # Require valid session token; raises 401 if missing
     specs = {}
     for label, f, u in [("a", file_a, url_a), ("b", file_b, url_b)]:
         raw = None
@@ -1067,7 +1180,9 @@ async def diff_schemas(
                     "method": method,
                     # Show both original paths when they differ (cross-version match)
                     "path": display_path_a,
-                    "path_b": display_path_b if display_path_b != display_path_a else None,
+                    "path_b": display_path_b
+                    if display_path_b != display_path_a
+                    else None,
                     "path_normalized": path_normalized,
                     "status": "changed" if has_changes else "identical",
                     "fields_a": fields_a,
@@ -1082,7 +1197,9 @@ async def diff_schemas(
     # Detect possible endpoint renames
     removed_endpoints = [r for r in results if r["status"] == "removed_from_b"]
     added_endpoints = [r for r in results if r["status"] == "added_in_b"]
-    possible_endpoint_renames = detect_endpoint_renames(removed_endpoints, added_endpoints)
+    possible_endpoint_renames = detect_endpoint_renames(
+        removed_endpoints, added_endpoints
+    )
 
     summary = {
         "spec_a": f"{spec_a['title']} {spec_a['version']}",
